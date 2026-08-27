@@ -1,0 +1,3 @@
+{
+  "extends": "@S3-vault-CLI/config/tsconfig.base.json"
+}
