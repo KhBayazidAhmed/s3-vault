@@ -1,0 +1,22 @@
+{
+	"name": "@S3-vault-CLI/application",
+	"version": "0.1.0",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"dependencies": {
+		"@S3-vault-CLI/config": "workspace:*",
+		"@S3-vault-CLI/domain": "workspace:*",
+		"@S3-vault-CLI/secrets": "workspace:*",
+		"@S3-vault-CLI/state": "workspace:*",
+		"@S3-vault-CLI/storage": "workspace:*",
+		"@S3-vault-CLI/storage-s3": "workspace:*",
+		"@S3-vault-CLI/test-backend": "workspace:*",
+		"@S3-vault-CLI/transfer": "workspace:*"
+	},
+	"devDependencies": {
+		"@types/node": "catalog:",
+		"typescript": "catalog:"
+	}
+}
