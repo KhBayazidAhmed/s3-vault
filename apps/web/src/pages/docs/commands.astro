@@ -1,0 +1,206 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+
+const commands = [
+	{
+		name: "vault init",
+		id: "vault-init",
+		description:
+			"Create or initialize a storage profile with provider presets, bucket, region, and credentials.",
+		syntax: "vault init [options]",
+		options: [
+			"-n, --name <name> (Profile name)",
+			"--provider <aws-s3 | cloudflare-r2 | minio | wasabi | custom-s3 | mock>",
+			"-b, --bucket <bucket> (Target bucket)",
+			"-r, --region <region> (Storage region)",
+			"-e, --endpoint <url> (Custom S3 endpoint)",
+			"--key <key> (Access Key ID)",
+			"--secret <secret> (Secret Access Key)",
+			"--default (Set as default profile)",
+		],
+	},
+	{
+		name: "vault profile",
+		id: "vault-profile",
+		description: "Manage storage profiles (list, show, use, remove).",
+		syntax: "vault profile <list|show|use|remove> [name]",
+		options: [
+			"list (Display all profiles)",
+			"show [name] (Show profile details)",
+			"use <name> (Switch active profile)",
+			"remove <name> (Delete a profile)",
+		],
+	},
+	{
+		name: "vault status",
+		id: "vault-status",
+		description:
+			"Diagnose active profile connectivity, permissions, bucket availability, and latency.",
+		syntax: "vault status [--json]",
+		options: ["--json (Output structured JSON diagnostics)"],
+	},
+	{
+		name: "vault push",
+		id: "vault-push",
+		description:
+			"Upload local files or directories to remote object storage with chunk streaming and resume.",
+		syntax: "vault push <source> [target] [options]",
+		options: [
+			"-r, --recursive (Upload directories recursively)",
+			"--include <pattern...> (Include glob patterns)",
+			"--exclude <pattern...> (Exclude glob patterns)",
+			"--dry-run (Preview transfer plan without writing)",
+			"--no-verify (Skip post-upload checksum validation)",
+		],
+	},
+	{
+		name: "vault pull",
+		id: "vault-pull",
+		description: "Download objects from storage to local filesystem.",
+		syntax: "vault pull <source> [target] [options]",
+		options: [
+			"-r, --recursive (Download recursively)",
+			"--dry-run (Preview download plan)",
+		],
+	},
+	{
+		name: "vault sync",
+		id: "vault-sync",
+		description:
+			"Reconcile local directory and remote object prefix with conflict policies.",
+		syntax: "vault sync <local> <remote> [options]",
+		options: [
+			"-d, --direction <up | down | two-way> (Sync direction)",
+			"-c, --conflict <newer | local-wins | remote-wins | fail | ask> (Conflict policy)",
+			"--delete (Delete extraneous destination files/objects)",
+			"--dry-run (Preview synchronization plan)",
+		],
+	},
+	{
+		name: "vault ls",
+		id: "vault-ls",
+		description: "List objects in bucket or prefix.",
+		syntax: "vault ls [path] [options]",
+		options: [
+			"-r, --recursive (Recursive mode)",
+			"-m, --max-keys <n> (Limit number of results)",
+		],
+	},
+	{
+		name: "vault info",
+		id: "vault-info",
+		description:
+			"Show object metadata, ETag, SHA-256 checksum, content type, and storage class.",
+		syntax: "vault info <path>",
+		options: ["--json (Output JSON metadata)"],
+	},
+	{
+		name: "vault search",
+		id: "vault-search",
+		description:
+			"Find objects by name, prefix, metadata, size range, or date range.",
+		syntax: "vault search <query> [options]",
+		options: ["--prefix <p>", "--min-size <bytes>", "--max-size <bytes>"],
+	},
+	{
+		name: "vault share",
+		id: "vault-share",
+		description:
+			"Generate a temporary presigned access URL with configurable expiry.",
+		syntax: "vault share <path> [options]",
+		options: [
+			"-e, --expires <seconds> (Default: 3600)",
+			"-m, --method <GET | PUT>",
+		],
+	},
+	{
+		name: "vault verify",
+		id: "vault-verify",
+		description:
+			"Validate local and remote file integrity with checksum verification.",
+		syntax: "vault verify <localPath> <remoteKey>",
+		options: ["--json (Return verification result as JSON)"],
+	},
+	{
+		name: "vault history",
+		id: "vault-history",
+		description: "Show local transfer history and status.",
+		syntax: "vault history [options]",
+		options: ["-l, --limit <n> (Limit number of records)"],
+	},
+	{
+		name: "vault snapshots",
+		id: "vault-snapshots",
+		description:
+			"Manage point-in-time snapshot manifests (create, list, inspect, compare).",
+		syntax: "vault snapshots <create|list|inspect|compare> [args]",
+		options: [
+			"create [prefix] (Create snapshot manifest)",
+			"list (List manifests)",
+			"inspect <id> (Inspect snapshot)",
+			"compare <idA> <idB> (Diff two snapshots)",
+		],
+	},
+	{
+		name: "vault dump",
+		id: "vault-dump",
+		description: "Export an entire manifest or snapshot as JSON or CSV.",
+		syntax: "vault dump [source] [options]",
+		options: ["-f, --format <json | csv> (Export format)"],
+	},
+	{
+		name: "vault tui",
+		id: "vault-tui",
+		description: "Launch the interactive OpenTUI terminal dashboard.",
+		syntax: "vault tui",
+		options: [],
+	},
+];
+---
+
+<DocsLayout title="CLI Command Reference - S3 Vault CLI">
+  <div class="space-y-12">
+    <div>
+      <h1 class="text-3xl sm:text-4xl font-extrabold text-white mb-4">
+        CLI Command Reference
+      </h1>
+      <p class="text-neutral-300 text-lg">
+        Complete reference for all 15 commands supported by S3 Vault CLI.
+      </p>
+    </div>
+
+    <div class="space-y-10">
+      {commands.map((cmd) => (
+        <section id={cmd.id} class="rounded-xl bg-neutral-900/50 border border-neutral-800 p-6 space-y-4">
+          <div class="flex items-center justify-between">
+            <h2 class="text-xl font-bold font-mono text-teal-400">
+              {cmd.name}
+            </h2>
+            <a href={`#${cmd.id}`} class="text-neutral-500 hover:text-neutral-300 text-sm">#</a>
+          </div>
+
+          <p class="text-neutral-300 text-sm">{cmd.description}</p>
+
+          <div>
+            <span class="text-xs uppercase font-semibold text-neutral-400">Syntax</span>
+            <pre class="mt-1 rounded bg-neutral-950 p-2.5 font-mono text-xs text-neutral-200 border border-neutral-800/80"><code>{cmd.syntax}</code></pre>
+          </div>
+
+          {cmd.options.length > 0 && (
+            <div>
+              <span class="text-xs uppercase font-semibold text-neutral-400">Options</span>
+              <ul class="mt-1.5 space-y-1 text-xs font-mono text-neutral-300">
+                {cmd.options.map((opt) => (
+                  <li class="flex items-start gap-2">
+                    <span class="text-blue-400">•</span>
+                    <span>{opt}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </section>
+      ))}
+    </div>
+  </div>
+</DocsLayout>

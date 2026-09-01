@@ -1,0 +1,89 @@
+---
+const sections = [
+	{
+		title: "Getting Started",
+		links: [
+			{ href: "/docs", label: "Overview & Quickstart" },
+			{ href: "/docs#installation", label: "Installation" },
+			{ href: "/docs#key-features", label: "Key Features" },
+		],
+	},
+	{
+		title: "CLI Commands",
+		links: [
+			{ href: "/docs/commands#vault-init", label: "vault init" },
+			{ href: "/docs/commands#vault-profile", label: "vault profile" },
+			{ href: "/docs/commands#vault-status", label: "vault status" },
+			{ href: "/docs/commands#vault-push", label: "vault push" },
+			{ href: "/docs/commands#vault-pull", label: "vault pull" },
+			{ href: "/docs/commands#vault-sync", label: "vault sync" },
+			{ href: "/docs/commands#vault-ls", label: "vault ls" },
+			{ href: "/docs/commands#vault-info", label: "vault info" },
+			{ href: "/docs/commands#vault-search", label: "vault search" },
+			{ href: "/docs/commands#vault-share", label: "vault share" },
+			{ href: "/docs/commands#vault-verify", label: "vault verify" },
+			{ href: "/docs/commands#vault-history", label: "vault history" },
+			{ href: "/docs/commands#vault-snapshots", label: "vault snapshots" },
+			{ href: "/docs/commands#vault-dump", label: "vault dump" },
+			{ href: "/docs/commands#vault-tui", label: "vault tui" },
+		],
+	},
+	{
+		title: "Storage Providers",
+		links: [
+			{ href: "/docs/providers#aws-s3", label: "AWS S3" },
+			{ href: "/docs/providers#cloudflare-r2", label: "Cloudflare R2" },
+			{ href: "/docs/providers#minio", label: "MinIO" },
+			{ href: "/docs/providers#wasabi", label: "Wasabi" },
+			{ href: "/docs/providers#custom-s3", label: "Custom S3 Endpoints" },
+			{ href: "/docs/providers#mock", label: "Local / Mock Backend" },
+		],
+	},
+	{
+		title: "Architecture & Security",
+		links: [
+			{
+				href: "/docs/architecture#module-boundaries",
+				label: "Module Boundaries",
+			},
+			{
+				href: "/docs/architecture#secrets-resolution",
+				label: "Secrets Resolution",
+			},
+			{ href: "/docs/architecture#sqlite-state", label: "SQLite State DB" },
+			{
+				href: "/docs/architecture#resumable-multipart",
+				label: "Resumable Multipart",
+			},
+			{
+				href: "/docs/architecture#exit-codes",
+				label: "Exit Codes & Scripting",
+			},
+		],
+	},
+];
+---
+
+<aside class="w-64 shrink-0 hidden md:block border-r border-neutral-800 p-4 h-[calc(100vh-4rem)] sticky top-16 overflow-y-auto">
+  <div class="space-y-6">
+    {sections.map((section) => (
+      <div>
+        <h4 class="text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
+          {section.title}
+        </h4>
+        <ul class="space-y-1 text-sm">
+          {section.links.map((link) => (
+            <li>
+              <a
+                href={link.href}
+                class="block py-1 px-2 rounded text-neutral-300 hover:text-white hover:bg-neutral-900 transition-colors"
+              >
+                {link.label}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </div>
+    ))}
+  </div>
+</aside>

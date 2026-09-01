@@ -1,0 +1,70 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+---
+
+<DocsLayout title="Storage Providers Setup - S3 Vault CLI">
+  <div class="prose prose-invert max-w-none space-y-10">
+    <div>
+      <h1 class="text-3xl sm:text-4xl font-extrabold text-white mb-4">
+        Storage Provider Guides
+      </h1>
+      <p class="text-neutral-300 text-lg">
+        S3 Vault CLI includes built-in provider presets that automatically configure endpoints, signature behaviors, region requirements, and addressing modes.
+      </p>
+    </div>
+
+    <!-- AWS S3 -->
+    <section id="aws-s3" class="space-y-3 pt-4 border-t border-neutral-800">
+      <h2 class="text-2xl font-bold text-teal-400">AWS S3 (Amazon Web Services)</h2>
+      <p class="text-neutral-300 text-sm">
+        Connect to standard AWS S3 buckets in any region. Uses virtual-hosted style addressing by default.
+      </p>
+      <pre class="rounded bg-neutral-900 border border-neutral-800 p-4 font-mono text-xs text-neutral-200"><code>vault init --name aws-prod \<br />  --provider aws-s3 \<br />  --bucket my-company-backups \<br />  --region us-east-1</code></pre>
+    </section>
+
+    <!-- Cloudflare R2 -->
+    <section id="cloudflare-r2" class="space-y-3 pt-4 border-t border-neutral-800">
+      <h2 class="text-2xl font-bold text-teal-400">Cloudflare R2</h2>
+      <p class="text-neutral-300 text-sm">
+        Cloudflare R2 provides zero-egress fee object storage. Configure your Account ID endpoint and auto region:
+      </p>
+      <pre class="rounded bg-neutral-900 border border-neutral-800 p-4 font-mono text-xs text-neutral-200"><code>vault init --name cloudflare-r2 \<br />  --provider cloudflare-r2 \<br />  --bucket r2-vault-bucket \<br />  --endpoint https://&lt;ACCOUNT_ID&gt;.r2.cloudflarestorage.com \<br />  --region auto</code></pre>
+    </section>
+
+    <!-- MinIO -->
+    <section id="minio" class="space-y-3 pt-4 border-t border-neutral-800">
+      <h2 class="text-2xl font-bold text-teal-400">MinIO (Self-Hosted Object Storage)</h2>
+      <p class="text-neutral-300 text-sm">
+        Self-hosted MinIO instances require path-style addressing and custom host endpoints:
+      </p>
+      <pre class="rounded bg-neutral-900 border border-neutral-800 p-4 font-mono text-xs text-neutral-200"><code>vault init --name local-minio \<br />  --provider minio \<br />  --bucket local-vault \<br />  --endpoint http://localhost:9000 \<br />  --addressing-style path-style</code></pre>
+    </section>
+
+    <!-- Wasabi -->
+    <section id="wasabi" class="space-y-3 pt-4 border-t border-neutral-800">
+      <h2 class="text-2xl font-bold text-teal-400">Wasabi Hot Cloud Storage</h2>
+      <p class="text-neutral-300 text-sm">
+        Wasabi offers high-performance cloud storage with regional endpoints:
+      </p>
+      <pre class="rounded bg-neutral-900 border border-neutral-800 p-4 font-mono text-xs text-neutral-200"><code>vault init --name wasabi-backup \<br />  --provider wasabi \<br />  --bucket wasabi-vault \<br />  --region us-east-1</code></pre>
+    </section>
+
+    <!-- Custom S3 Compatible Storage -->
+    <section id="custom-s3" class="space-y-3 pt-4 border-t border-neutral-800">
+      <h2 class="text-2xl font-bold text-teal-400">Custom S3 Compatible Storage</h2>
+      <p class="text-neutral-300 text-sm">
+        Connect to any S3-compatible provider (Ceph RGW, Garage, Backblaze B2, Tenbyte Cloud, Rust S3, LocalStack). Defaults to path-style addressing and automatically detects SSL:
+      </p>
+      <pre class="rounded bg-neutral-900 border border-neutral-800 p-4 font-mono text-xs text-neutral-200"><code>vault init --name my-custom-s3 \<br />  --provider custom-s3 \<br />  --bucket my-vault-bucket \<br />  --endpoint https://s3.example.com</code></pre>
+    </section>
+
+    <!-- Mock -->
+    <section id="mock" class="space-y-3 pt-4 border-t border-neutral-800">
+      <h2 class="text-2xl font-bold text-teal-400">Local Filesystem / Mock Backend</h2>
+      <p class="text-neutral-300 text-sm">
+        For testing and offline local file vaulting without cloud accounts:
+      </p>
+      <pre class="rounded bg-neutral-900 border border-neutral-800 p-4 font-mono text-xs text-neutral-200"><code>vault init --name local-mock \<br />  --provider mock \<br />  --bucket offline-vault \<br />  --default</code></pre>
+    </section>
+  </div>
+</DocsLayout>

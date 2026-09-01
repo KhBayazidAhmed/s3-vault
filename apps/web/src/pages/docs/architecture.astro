@@ -1,0 +1,66 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+---
+
+<DocsLayout title="Architecture & Security - S3 Vault CLI">
+  <div class="prose prose-invert max-w-none space-y-10">
+    <div>
+      <h1 class="text-3xl sm:text-4xl font-extrabold text-white mb-4">
+        Architecture & Automation
+      </h1>
+      <p class="text-neutral-300 text-lg">
+        S3 Vault CLI enforces clean hexagonal port-and-adapter boundaries, zero SDK leakage into CLI or domain layers, and strict security guarantees.
+      </p>
+    </div>
+
+    <!-- Module Boundaries -->
+    <section id="module-boundaries" class="space-y-3 pt-4 border-t border-neutral-800">
+      <h2 class="text-2xl font-bold text-teal-400">Hexagonal Module Boundaries</h2>
+      <p class="text-neutral-300 text-sm">
+        The CLI commands and use cases depend exclusively on the abstract <code class="text-teal-300">StorageBackend</code> port interface. Concrete provider adapters in <code class="text-teal-300">packages/storage-s3</code> translate neutral storage calls into SDK operations.
+      </p>
+      <pre class="rounded bg-neutral-900 border border-neutral-800 p-4 font-mono text-xs text-neutral-200"><code>apps/<br />  tui/                 # CLI entrypoint and OpenTUI dashboard<br />packages/<br />  domain/              # Pure business entities, errors, checksums<br />  storage/             # Neutral StorageBackend interface &amp; contracts<br />  storage-s3/          # AWS SDK v3 adapter &amp; provider presets<br />  test-backend/        # In-memory &amp; disk-based deterministic mock<br />  state/               # SQLite (state.db) &amp; JSON snapshot manifests<br />  secrets/             # Env, OS Keychain &amp; AES-256-GCM fallback<br />  config/              # Profile schemas &amp; precedence resolution<br />  transfer/            # Batch planner, multipart worker pool, retry<br />  application/         # Use cases orchestrating operations<br />  output/              # Formatter, tables, progress, redaction</code></pre>
+    </section>
+
+    <!-- Secrets Resolution -->
+    <section id="secrets-resolution" class="space-y-3 pt-4 border-t border-neutral-800">
+      <h2 class="text-2xl font-bold text-teal-400">Multi-Tier Secrets Resolution</h2>
+      <p class="text-neutral-300 text-sm">
+        Credentials are never stored in plaintext project files. They are resolved in strict priority:
+      </p>
+      <ol class="list-decimal pl-6 text-sm text-neutral-300 space-y-1">
+        <li><strong>Environment Variables:</strong> <code class="text-teal-300">AWS_ACCESS_KEY_ID</code>, <code class="text-teal-300">S3_VAULT_KEY_ID_&lt;PROFILE&gt;</code></li>
+        <li><strong>Native OS Keychain:</strong> macOS Keychain, Linux Secret Service, Windows Credential Manager.</li>
+        <li><strong>Encrypted Fallback:</strong> AES-256-GCM encrypted keystore at <code class="text-teal-300">~/.vault/credentials.enc</code> (mode 0600) for headless/CI workflows.</li>
+      </ol>
+    </section>
+
+    <!-- Exit Codes -->
+    <section id="exit-codes" class="space-y-3 pt-4 border-t border-neutral-800">
+      <h2 class="text-2xl font-bold text-teal-400">Exit Codes & Scripting Automation</h2>
+      <p class="text-neutral-300 text-sm">
+        S3 Vault returns deterministic exit codes and structured JSON envelopes (<code class="text-teal-300">--json</code>) for script automation:
+      </p>
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs font-mono text-neutral-300 border border-neutral-800 rounded">
+          <thead class="bg-neutral-900 text-neutral-400 border-b border-neutral-800">
+            <tr>
+              <th class="p-2.5">Exit Code</th>
+              <th class="p-2.5">Meaning</th>
+              <th class="p-2.5">Example Trigger</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-neutral-800/80">
+            <tr><td class="p-2.5 font-bold text-emerald-400">0</td><td class="p-2.5">Success</td><td class="p-2.5">Operation completed with zero errors</td></tr>
+            <tr><td class="p-2.5 font-bold text-red-400">1</td><td class="p-2.5">General Failure</td><td class="p-2.5">File not found, conflict, unhandled error</td></tr>
+            <tr><td class="p-2.5 font-bold text-red-400">2</td><td class="p-2.5">Invalid Usage / Config</td><td class="p-2.5">Missing bucket, invalid profile syntax</td></tr>
+            <tr><td class="p-2.5 font-bold text-red-400">3</td><td class="p-2.5">Auth / Permission Failure</td><td class="p-2.5">Invalid access key, access denied (403)</td></tr>
+            <tr><td class="p-2.5 font-bold text-red-400">4</td><td class="p-2.5">Integrity Failure</td><td class="p-2.5">SHA-256 / ETag checksum mismatch</td></tr>
+            <tr><td class="p-2.5 font-bold text-yellow-400">5</td><td class="p-2.5">Partial Success</td><td class="p-2.5">Batch transfer had some failed items</td></tr>
+            <tr><td class="p-2.5 font-bold text-neutral-400">130</td><td class="p-2.5">User Cancellation</td><td class="p-2.5">Ctrl+C / SIGINT interrupt</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</DocsLayout>

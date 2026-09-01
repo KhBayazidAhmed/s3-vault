@@ -1,0 +1,23 @@
+---
+import Sidebar from "../components/Sidebar.astro";
+import Layout from "./Layout.astro";
+
+interface Props {
+	title?: string;
+	description?: string;
+}
+
+const {
+	title = "Documentation - S3 Vault CLI",
+	description = "Documentation and guides for S3 Vault CLI",
+} = Astro.props;
+---
+
+<Layout title={title}>
+  <div class="max-w-7xl mx-auto flex w-full">
+    <Sidebar />
+    <main class="flex-1 min-w-0 px-4 py-8 sm:px-8 max-w-4xl">
+      <slot />
+    </main>
+  </div>
+</Layout>

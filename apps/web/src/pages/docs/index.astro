@@ -1,0 +1,61 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+---
+
+<DocsLayout title="Overview & Quickstart - S3 Vault CLI">
+  <div class="prose prose-invert max-w-none space-y-8">
+    <div>
+      <h1 class="text-3xl sm:text-4xl font-extrabold text-white mb-4">
+        Getting Started with S3 Vault CLI
+      </h1>
+      <p class="text-neutral-300 text-lg">
+        <strong>S3 Vault CLI</strong> is a local-first, provider-neutral command-line file vault designed for reliable, scriptable transfers across AWS S3, Cloudflare R2, MinIO, Wasabi, and other S3-compatible object storage backends.
+      </p>
+    </div>
+
+    <div id="installation" class="space-y-4">
+      <h2 class="text-2xl font-bold text-white border-b border-neutral-800 pb-2">
+        Installation
+      </h2>
+      <p class="text-neutral-300">
+        You can run S3 Vault CLI directly via Bun or install it globally:
+      </p>
+
+      <div class="rounded-lg bg-neutral-900 border border-neutral-800 p-4 font-mono text-sm text-neutral-200">
+        <code># Run directly with Bun<br />bun run apps/tui/bin/vault.js --help<br /><br /># Or link the binary globally<br />bun link</code>
+      </div>
+    </div>
+
+    <div class="space-y-4">
+      <h2 class="text-2xl font-bold text-white border-b border-neutral-800 pb-2">
+        Core Quickstart Workflow
+      </h2>
+
+      <div class="space-y-6">
+        <div>
+          <h3 class="text-lg font-semibold text-teal-400 mb-2">1. Initialize a Storage Profile</h3>
+          <p class="text-neutral-300 mb-2">Configure an endpoint, bucket, and credentials:</p>
+          <pre class="rounded bg-neutral-900 border border-neutral-800 p-3 font-mono text-xs text-neutral-200"><code>vault init --name prod-r2 --provider cloudflare-r2 --bucket my-backup --default</code></pre>
+        </div>
+
+        <div>
+          <h3 class="text-lg font-semibold text-teal-400 mb-2">2. Verify Status & Connectivity</h3>
+          <p class="text-neutral-300 mb-2">Check health, latency, and access:</p>
+          <pre class="rounded bg-neutral-900 border border-neutral-800 p-3 font-mono text-xs text-neutral-200"><code>vault status</code></pre>
+        </div>
+
+        <div>
+          <h3 class="text-lg font-semibold text-teal-400 mb-2">3. Upload Files (Push)</h3>
+          <p class="text-neutral-300 mb-2">Upload local directories with chunk streaming and checksum verification:</p>
+          <pre class="rounded bg-neutral-900 border border-neutral-800 p-3 font-mono text-xs text-neutral-200"><code>vault push ./data remote-folder/</code></pre>
+        </div>
+
+        <div>
+          <h3 class="text-lg font-semibold text-teal-400 mb-2">4. Launch Interactive Terminal UI</h3>
+          <p class="text-neutral-300 mb-2">Explore buckets, transfers, and profiles interactively with OpenTUI:</p>
+          <pre class="rounded bg-neutral-900 border border-neutral-800 p-3 font-mono text-xs text-neutral-200"><code>vault tui</code></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</DocsLayout>

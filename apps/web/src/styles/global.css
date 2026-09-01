@@ -4,5 +4,5 @@
 /* See the TailwindCSS v4 docs for more info: https://tailwindcss.com/docs/v4-beta */
 
 @theme {
-  --font-sans: "Inter", sans-serif;
+	--font-sans: "Inter", sans-serif;
 }

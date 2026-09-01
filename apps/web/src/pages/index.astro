@@ -1,28 +1,104 @@
 ---
 import Layout from "../layouts/Layout.astro";
 
-const TITLE_TEXT = `
- ██████╗ ███████╗████████╗████████╗███████╗██████╗
- ██╔══██╗██╔════╝╚══██╔══╝╚══██╔══╝██╔════╝██╔══██╗
- ██████╔╝█████╗     ██║      ██║   █████╗  ██████╔╝
- ██╔══██╗██╔══╝     ██║      ██║   ██╔══╝  ██╔══██╗
- ██████╔╝███████╗   ██║      ██║   ███████╗██║  ██║
- ╚═════╝ ╚══════╝   ╚═╝      ╚═╝   ╚══════╝╚═╝  ╚═╝
-
- ████████╗    ███████╗████████╗ █████╗  ██████╗██╗  ██╗
- ╚══██╔══╝    ██╔════╝╚══██╔══╝██╔══██╗██╔════╝██║ ██╔╝
-    ██║       ███████╗   ██║   ███████║██║     █████╔╝
-    ██║       ╚════██║   ██║   ██╔══██║██║     ██╔═██╗
-    ██║       ███████║   ██║   ██║  ██║╚██████╗██║  ██╗
-    ╚═╝       ╚══════╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝
- `;
+const ASCII_VAULT = `
+   ███████╗██████╗     ██╗   ██╗ █████╗ ██╗   ██╗██╗  ████████╗
+   ██╔════╝╚════██╗    ██║   ██║██╔══██╗██║   ██║██║  ╚══██╔══╝
+   ███████╗ █████╔╝    ██║   ██║███████║██║   ██║██║     ██║   
+   ╚════██║ ╚═══██╗    ╚██╗ ██╔╝██╔══██║██║   ██║██║     ██║   
+   ███████║██████╔╝     ╚████╔╝ ██║  ██║╚██████╔╝███████╗██║   
+   ╚══════╝╚═════╝       ╚═══╝  ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝   
+`;
 ---
 
-<Layout title="S3-vault-CLI">
-  <div class="container mx-auto max-w-3xl px-4 py-2">
-    <pre class="overflow-x-auto font-mono text-sm text-white">{TITLE_TEXT}</pre>
-    <div class="grid gap-6">
-    </div>
+<Layout title="S3 Vault CLI - Provider-Neutral File Vault">
+  <div class="relative overflow-hidden">
+    <!-- Hero Section -->
+    <section class="max-w-6xl mx-auto px-4 pt-16 pb-20 sm:px-6 lg:pt-24 text-center">
+      <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-950/60 border border-blue-800/60 text-blue-300 text-xs font-medium mb-6">
+        <span>⚡ Built with Bun, TypeScript & OpenTUI</span>
+      </div>
+
+      <h1 class="text-4xl sm:text-6xl font-extrabold tracking-tight text-white mb-6">
+        The Provider-Neutral <br />
+        <span class="bg-gradient-to-r from-blue-400 via-teal-300 to-indigo-400 bg-clip-text text-transparent">
+          Command-Line File Vault
+        </span>
+      </h1>
+
+      <p class="max-w-2xl mx-auto text-lg text-neutral-300 mb-10 leading-relaxed">
+        Predictable, resumable, verified transfers across <strong>AWS S3</strong>, <strong>Cloudflare R2</strong>, <strong>MinIO</strong>, and any S3-compatible storage. Scriptable in CI/CD and interactive in your terminal.
+      </p>
+
+      <div class="flex flex-wrap items-center justify-center gap-4 mb-16">
+        <a
+          href="/docs"
+          class="px-6 py-3 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold text-sm shadow-lg shadow-blue-900/30 transition-all"
+        >
+          Read Documentation
+        </a>
+        <a
+          href="/docs/commands"
+          class="px-6 py-3 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-neutral-200 border border-neutral-700 font-semibold text-sm transition-all"
+        >
+          CLI Command Reference
+        </a>
+      </div>
+
+      <!-- Terminal Preview Box -->
+      <div class="max-w-3xl mx-auto rounded-xl bg-neutral-900/90 border border-neutral-800 shadow-2xl overflow-hidden text-left font-mono text-sm">
+        <div class="bg-neutral-950 px-4 py-2.5 border-b border-neutral-800 flex items-center gap-2">
+          <div class="w-3 h-3 rounded-full bg-red-500/80"></div>
+          <div class="w-3 h-3 rounded-full bg-yellow-500/80"></div>
+          <div class="w-3 h-3 rounded-full bg-green-500/80"></div>
+          <span class="text-xs text-neutral-400 ml-2">vault terminal</span>
+        </div>
+        <div class="p-5 text-neutral-300 space-y-3">
+          <p><span class="text-teal-400">$</span> vault init --name prod-r2 --provider cloudflare-r2 --bucket assets</p>
+          <p class="text-emerald-400">✔ Profile 'prod-r2' initialized successfully!</p>
+          <p><span class="text-teal-400">$</span> vault push ./build/dist prod-r2:dist --json</p>
+          <p class="text-neutral-400">&#123; "success": true, "code": "OK", "data": &#123; "uploaded": 14, "bytes": 8421092 &#125; &#125;</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Key Features Grid -->
+    <section class="max-w-6xl mx-auto px-4 py-16 sm:px-6 border-t border-neutral-900">
+      <h2 class="text-2xl sm:text-3xl font-bold text-center text-white mb-12">
+        Engineered for Reliability and Automation
+      </h2>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+        <div class="p-6 rounded-xl bg-neutral-900/40 border border-neutral-800/80">
+          <div class="w-10 h-10 rounded-lg bg-blue-900/40 border border-blue-700/50 flex items-center justify-center text-blue-400 mb-4 font-bold">
+            ⚡
+          </div>
+          <h3 class="text-lg font-bold text-white mb-2">Resumable Transfers</h3>
+          <p class="text-sm text-neutral-400">
+            Fine-grained multipart chunk tracking in SQLite. Interrupted jobs resume without re-uploading completed parts.
+          </p>
+        </div>
+
+        <div class="p-6 rounded-xl bg-neutral-900/40 border border-neutral-800/80">
+          <div class="w-10 h-10 rounded-lg bg-teal-900/40 border border-teal-700/50 flex items-center justify-center text-teal-400 mb-4 font-bold">
+            🛡️
+          </div>
+          <h3 class="text-lg font-bold text-white mb-2">Hybrid Checksums</h3>
+          <p class="text-sm text-neutral-400">
+            Streaming SHA-256 validation combined with S3 ETag verification. Catch corrupted or tampered payloads automatically.
+          </p>
+        </div>
+
+        <div class="p-6 rounded-xl bg-neutral-900/40 border border-neutral-800/80">
+          <div class="w-10 h-10 rounded-lg bg-indigo-900/40 border border-indigo-700/50 flex items-center justify-center text-indigo-400 mb-4 font-bold">
+            📸
+          </div>
+          <h3 class="text-lg font-bold text-white mb-2">Point-in-Time Snapshots</h3>
+          <p class="text-sm text-neutral-400">
+            Generate immutable JSON manifests with Merkle root hashes. Diff, inspect, and export snapshot states anytime.
+          </p>
+        </div>
+      </div>
+    </section>
   </div>
 </Layout>
-
