@@ -1,0 +1,20 @@
+{
+	"name": "@S3-vault-CLI/storage-s3",
+	"version": "0.1.0",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"dependencies": {
+		"@aws-sdk/client-s3": "^3.758.0",
+		"@aws-sdk/s3-request-presigner": "^3.758.0",
+		"@S3-vault-CLI/config": "workspace:*",
+		"@S3-vault-CLI/domain": "workspace:*",
+		"@S3-vault-CLI/secrets": "workspace:*",
+		"@S3-vault-CLI/storage": "workspace:*"
+	},
+	"devDependencies": {
+		"@types/node": "catalog:",
+		"typescript": "catalog:"
+	}
+}

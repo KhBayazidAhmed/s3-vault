@@ -1,0 +1,17 @@
+{
+	"name": "@S3-vault-CLI/test-backend",
+	"version": "0.1.0",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"dependencies": {
+		"@S3-vault-CLI/domain": "workspace:*",
+		"@S3-vault-CLI/storage": "workspace:*"
+	},
+	"devDependencies": {
+		"@S3-vault-CLI/config": "workspace:*",
+		"@types/node": "catalog:",
+		"typescript": "catalog:"
+	}
+}

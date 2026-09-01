@@ -1,0 +1,17 @@
+{
+	"name": "@S3-vault-CLI/storage",
+	"version": "0.1.0",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts",
+		"./contracts": "./src/contract-tests.ts"
+	},
+	"dependencies": {
+		"@S3-vault-CLI/domain": "workspace:*"
+	},
+	"devDependencies": {
+		"@S3-vault-CLI/config": "workspace:*",
+		"@types/node": "catalog:",
+		"typescript": "catalog:"
+	}
+}
