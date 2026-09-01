@@ -1,0 +1,19 @@
+{
+	"name": "@S3-vault-CLI/transfer",
+	"version": "0.1.0",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"dependencies": {
+		"@S3-vault-CLI/config": "workspace:*",
+		"@S3-vault-CLI/domain": "workspace:*",
+		"@S3-vault-CLI/state": "workspace:*",
+		"@S3-vault-CLI/storage": "workspace:*"
+	},
+	"devDependencies": {
+		"@S3-vault-CLI/test-backend": "workspace:*",
+		"@types/node": "catalog:",
+		"typescript": "catalog:"
+	}
+}
