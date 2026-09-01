@@ -47,6 +47,9 @@ const commands = [
 		syntax: "vault push <source> [target] [options]",
 		options: [
 			"-r, --recursive (Upload directories recursively)",
+			"-s, --share (Generate a presigned shareable link immediately after upload)",
+			"-e, --expires <seconds> (Expiration in seconds for shareable link, default 3600)",
+			"-f, --force (Force upload even if duplicate remote object exists)",
 			"--include <pattern...> (Include glob patterns)",
 			"--exclude <pattern...> (Exclude glob patterns)",
 			"--dry-run (Preview transfer plan without writing)",

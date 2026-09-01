@@ -83,7 +83,7 @@ export class TransferEngine extends EventEmitter {
 
 	async execute(
 		plan: TransferPlan,
-		jobId = `job_${Date.now()}`,
+		jobId = `job_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
 	): Promise<{ success: boolean; errors: Error[] }> {
 		const totalFiles = plan.items.filter((i) => i.action !== "skip").length;
 		const totalBytes = plan.totalBytes;
@@ -188,10 +188,12 @@ export class TransferEngine extends EventEmitter {
 						bucket: this.options.bucket,
 						key: item.targetPath,
 					});
+					emitProgress(item.relativePath);
 				} else if (item.action === "delete-local") {
 					if (existsSync(item.sourcePath)) {
 						unlinkSync(item.sourcePath);
 					}
+					emitProgress(item.relativePath);
 				}
 
 				item.status = "completed";

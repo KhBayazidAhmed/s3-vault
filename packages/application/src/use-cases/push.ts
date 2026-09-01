@@ -10,7 +10,20 @@ export interface PushOptions extends CliConfigOverrides {
 	includes?: string[];
 	excludes?: string[];
 	dryRun?: boolean;
+	verifyChecksum?: boolean;
+	force?: boolean;
+	share?: boolean;
+	expiresInSeconds?: number;
 	onProgress?: (progress: any) => void;
+}
+
+export interface PushResult {
+	plan: TransferPlan;
+	success: boolean;
+	errors: Error[];
+	shareUrl?: string;
+	shareExpiresInSeconds?: number;
+	sharedKey?: string;
 }
 
 export class PushUseCase {
@@ -29,13 +42,13 @@ export class PushUseCase {
 			includes: options.includes,
 			excludes: options.excludes,
 			recursive: options.recursive,
-			computeHash: options.verifyChecksum,
+			computeHash:
+				options.verifyChecksum ?? runtimeConfig.transferSettings.verifyChecksum,
+			force: options.force,
 		});
 	}
 
-	async execute(
-		options: PushOptions,
-	): Promise<{ plan: TransferPlan; success: boolean; errors: Error[] }> {
+	async execute(options: PushOptions): Promise<PushResult> {
 		const { runtimeConfig, storage } =
 			await this.context.resolveStorageWithCredentials(options);
 		const plan = await this.plan(options);
@@ -64,10 +77,32 @@ export class PushUseCase {
 		}
 
 		const res = await engine.execute(plan);
+
+		let shareUrl: string | undefined;
+		let shareExpiresInSeconds: number | undefined;
+		let sharedKey: string | undefined;
+
+		if (options.share && res.success && plan.items.length > 0) {
+			const targetItem = plan.items[0];
+			if (targetItem?.targetPath) {
+				sharedKey = targetItem.targetPath.replace(/^\/+/, "");
+				shareExpiresInSeconds = options.expiresInSeconds ?? 3600;
+				shareUrl = await storage.createPresignedUrl({
+					bucket: runtimeConfig.bucket,
+					key: sharedKey,
+					method: "GET",
+					expiresInSeconds: shareExpiresInSeconds,
+				});
+			}
+		}
+
 		return {
 			plan,
 			success: res.success,
 			errors: res.errors,
+			shareUrl,
+			shareExpiresInSeconds,
+			sharedKey,
 		};
 	}
 }

@@ -102,6 +102,21 @@ describe("TUI File Manager: Local & Remote Browser & State", () => {
 			true,
 		);
 
+		// Test deleting single remote object
+		const { DeleteUseCase } = await import("@S3-vault-CLI/application");
+		const deleteUseCase = new DeleteUseCase(context);
+
+		await deleteUseCase.execute({ path: "root-file.json" });
+		const afterDeleteRoot = await RemoteBrowser.listPrefix(listUseCase, "");
+		expect(afterDeleteRoot.some((i) => i.name === "root-file.json")).toBe(
+			false,
+		);
+
+		// Test deleting remote folder recursively
+		await deleteUseCase.execute({ path: "documents/", recursive: true });
+		const afterDeleteFolder = await RemoteBrowser.listPrefix(listUseCase, "");
+		expect(afterDeleteFolder.some((i) => i.name === "documents/")).toBe(false);
+
 		context.dbManager.close();
 		rmSync(tempDir, { recursive: true, force: true });
 	});

@@ -1,5 +1,6 @@
 export * from "./backend-factory.js";
 export * from "./service-context.js";
+export * from "./use-cases/delete.js";
 export * from "./use-cases/dump.js";
 export * from "./use-cases/history.js";
 export * from "./use-cases/init-profile.js";

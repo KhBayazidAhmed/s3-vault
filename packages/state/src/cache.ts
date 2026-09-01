@@ -49,6 +49,20 @@ export class ObjectCacheManager {
 		};
 	}
 
+	evictObject(profileName: string, bucket: string, key: string): void {
+		this.db.run(
+			"DELETE FROM object_cache WHERE profile_name = ? AND bucket = ? AND key = ?",
+			[profileName, bucket, key],
+		);
+	}
+
+	evictPrefix(profileName: string, bucket: string, prefix: string): void {
+		this.db.run(
+			"DELETE FROM object_cache WHERE profile_name = ? AND bucket = ? AND key LIKE ?",
+			[profileName, bucket, `${prefix}%`],
+		);
+	}
+
 	clearCache(profileName?: string, bucket?: string): void {
 		if (profileName && bucket) {
 			this.db.run(

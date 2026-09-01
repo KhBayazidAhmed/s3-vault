@@ -1,4 +1,5 @@
 import {
+	DeleteUseCase,
 	DumpUseCase,
 	HistoryUseCase,
 	InitProfileUseCase,
@@ -17,6 +18,7 @@ import {
 } from "@S3-vault-CLI/application";
 import { VaultError } from "@S3-vault-CLI/domain";
 import {
+	ClipboardUtils,
 	colors,
 	Formatter,
 	JsonOutput,
@@ -392,6 +394,20 @@ export function createCliProgram(
 		.option("--exclude <pattern...>", "Exclude glob patterns")
 		.option("--dry-run", "Show upload plan without executing transfers")
 		.option("--no-verify", "Skip post-transfer checksum verification")
+		.option(
+			"-s, --share",
+			"Generate a presigned shareable link immediately after upload",
+		)
+		.option(
+			"-e, --expires <seconds>",
+			"Expiration in seconds for shareable link (default: 3600)",
+			(v) => Number.parseInt(v, 10),
+			3600,
+		)
+		.option(
+			"-f, --force",
+			"Force upload even if duplicate remote object exists",
+		)
 		.action(async (source, target, cmdOpts) => {
 			await handleAction(async (globalOpts) => {
 				const useCase = new PushUseCase(context);
@@ -405,6 +421,9 @@ export function createCliProgram(
 					excludes: cmdOpts.exclude,
 					dryRun: cmdOpts.dryRun,
 					verifyChecksum: cmdOpts.verify !== false,
+					force: cmdOpts.force,
+					share: cmdOpts.share,
+					expiresInSeconds: cmdOpts.expires,
 					...globalOpts,
 					onProgress: (p) => {
 						if (!globalOpts.quiet) progressBar.update(p);
@@ -412,15 +431,34 @@ export function createCliProgram(
 				});
 
 				if (!globalOpts.json) {
-					progressBar.finish(
-						result.success
-							? colors.green(
-									`✔ Push completed: ${result.plan.items.length} items (${Formatter.formatBytes(result.plan.totalBytes)})`,
-								)
-							: colors.red(
-									`✖ Push failed with ${result.errors.length} error(s)`,
-								),
-					);
+					if (result.success) {
+						const uploadedCount = result.plan.items.filter(
+							(i) => i.action !== "skip",
+						).length;
+						const skippedCount = result.plan.skips;
+						let summary = `✔ Push completed: ${uploadedCount} item(s) uploaded (${Formatter.formatBytes(result.plan.totalBytes)})`;
+						if (skippedCount > 0) {
+							summary += `, ${skippedCount} duplicate(s) skipped`;
+						}
+						progressBar.finish(colors.green(summary));
+
+						if (result.shareUrl) {
+							const durationStr = Formatter.formatDuration(
+								result.shareExpiresInSeconds ?? 3600,
+							);
+							const copied = await ClipboardUtils.copy(result.shareUrl);
+							console.log();
+							logger.success(`Shareable link (expires in ${durationStr}):`);
+							console.log(colors.cyan(result.shareUrl));
+							if (copied) {
+								console.log(colors.dim("📋 Copied link to clipboard!"));
+							}
+						}
+					} else {
+						progressBar.finish(
+							colors.red(`✖ Push failed with ${result.errors.length} error(s)`),
+						);
+					}
 				}
 
 				return result;
@@ -592,7 +630,51 @@ export function createCliProgram(
 			});
 		});
 
-	// 9. vault search <query>
+	// 9. vault rm <path>
+	program
+		.command("rm <path>")
+		.alias("delete")
+		.description("Delete remote object or directory prefix from storage")
+		.option(
+			"-r, --recursive",
+			"Recursively delete all objects under prefix",
+			false,
+		)
+		.option(
+			"--dry-run",
+			"Preview objects that would be deleted without removing them",
+			false,
+		)
+		.action(async (path, cmdOpts) => {
+			await handleAction(async (globalOpts) => {
+				const useCase = new DeleteUseCase(context);
+				const result = await useCase.execute({
+					path,
+					recursive: cmdOpts.recursive,
+					dryRun: cmdOpts.dryRun,
+					...globalOpts,
+				});
+
+				if (!globalOpts.json) {
+					if (result.dryRun) {
+						logger.info(
+							`[DRY-RUN] Would delete ${result.deletedCount} object(s):`,
+						);
+						for (const k of result.deletedKeys) {
+							console.log(`  - ${k}`);
+						}
+					} else {
+						logger.success(
+							`Deleted ${result.deletedCount} object(s) from storage.`,
+						);
+					}
+				}
+
+				return result;
+			});
+		});
+
+	// 10. vault search <query>
 	program
 		.command("search <query>")
 		.description("Search objects by name, prefix, size, or date")
@@ -651,10 +733,14 @@ export function createCliProgram(
 				});
 
 				if (!globalOpts.json) {
+					const copied = await ClipboardUtils.copy(result.url);
 					logger.success(
 						`Presigned URL generated (expires in ${Formatter.formatDuration(result.expiresInSeconds)}):`,
 					);
 					console.log(colors.cyan(result.url));
+					if (copied) {
+						console.log(colors.dim("📋 Copied link to clipboard!"));
+					}
 				}
 
 				return result;

@@ -1,11 +1,13 @@
 import {
+	DeleteUseCase,
 	InitProfileUseCase,
 	PullUseCase,
 	PushUseCase,
 	type ServiceContext,
 	ShareUseCase,
 } from "@S3-vault-CLI/application";
-import { unlinkSync } from "node:fs";
+import { ClipboardUtils } from "@S3-vault-CLI/output";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { BoxRenderable, createCliRenderer, type KeyEvent } from "@opentui/core";
 import { createDualPaneView } from "./components/dual-pane-view.js";
@@ -144,20 +146,24 @@ export async function runInteractiveTui(context: ServiceContext) {
 				if (target) {
 					try {
 						if (isRemote) {
-							const { runtimeConfig, storage } = context.resolveRuntime();
-							await storage.deleteObject({
-								bucket: runtimeConfig.bucket,
-								key: target.path,
+							const deleteUseCase = new DeleteUseCase(context);
+							const res = await deleteUseCase.execute({
+								path: target.path,
+								recursive: target.isDirectory,
 							});
 							stateManager.setStatus(
-								`Deleted remote object: ${target.name}`,
+								target.isDirectory
+									? `Deleted remote folder '${target.name}' (${res.deletedCount} object(s))`
+									: `Deleted remote object: ${target.name}`,
 								"success",
 							);
 							await stateManager.refreshRemote(context);
 						} else {
-							unlinkSync(target.path);
+							rmSync(target.path, { recursive: true, force: true });
 							stateManager.setStatus(
-								`Deleted local file: ${target.name}`,
+								target.isDirectory
+									? `Deleted local directory: ${target.name}`
+									: `Deleted local file: ${target.name}`,
 								"success",
 							);
 							stateManager.refreshLocal();
@@ -436,6 +442,8 @@ export async function runInteractiveTui(context: ServiceContext) {
 					key: item.path,
 					expiresInSeconds: 3600,
 				});
+
+				await ClipboardUtils.copy(res.url);
 
 				stateManager.openModal("share-link", {
 					targetItem: item,

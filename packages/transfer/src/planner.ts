@@ -23,6 +23,7 @@ export interface PlanOptions extends ScanOptions {
 	conflictPolicy?: ConflictPolicy;
 	deletePolicy?: DeletePolicy;
 	computeHash?: boolean;
+	force?: boolean;
 }
 
 export class TransferPlanner {
@@ -52,7 +53,9 @@ export class TransferPlanner {
 		}
 
 		const remoteMap = new Map<string, VaultObject>();
+		const remoteByKey = new Map<string, VaultObject>();
 		for (const obj of remoteObjects) {
+			remoteByKey.set(obj.key, obj);
 			let rel = obj.key;
 			if (remotePrefix && rel.startsWith(remotePrefix)) {
 				rel = rel.slice(remotePrefix.length).replace(/^\/+/, "");
@@ -91,7 +94,27 @@ export class TransferPlanner {
 				} else {
 					remoteKey = relPath;
 				}
-				const remoteObj = remoteMap.get(relPath);
+
+				let remoteObj = remoteByKey.get(remoteKey) ?? remoteMap.get(relPath);
+				if (!remoteObj && isSingleFile && storage.headObject) {
+					try {
+						const head = await storage.headObject({
+							bucket: options.remoteBucket,
+							key: remoteKey,
+						});
+						if (head) {
+							remoteObj = {
+								key: remoteKey,
+								size: head.size,
+								etag: head.etag,
+								lastModified: head.lastModified,
+								checksumSha256: head.checksumSha256,
+							};
+						}
+					} catch {
+						// Ignored: object does not exist on remote
+					}
+				}
 
 				const localHash =
 					options.computeHash && existsSync(localFile.absolutePath)
@@ -113,13 +136,75 @@ export class TransferPlanner {
 						status: "pending",
 						bytesTransferred: 0,
 					});
+				} else if (options.force) {
+					updates++;
+					items.push({
+						id: TransferPlanner.makeItemId(items.length + 1),
+						sourcePath: localFile.absolutePath,
+						targetPath: remoteKey,
+						relativePath: relPath,
+						size: localFile.size,
+						action: "upload",
+						reason: "Forced upload (overwriting remote object)",
+						localLastModified: localFile.lastModified,
+						remoteLastModified: remoteObj.lastModified,
+						localHash,
+						remoteHash: remoteObj.checksumSha256 || remoteObj.etag,
+						status: "pending",
+						bytesTransferred: 0,
+					});
 				} else {
-					// Compare size & mtime
+					// Duplicate detection
 					const sizeMatch = remoteObj.size === localFile.size;
-					const remoteTime = new Date(remoteObj.lastModified).getTime();
-					const localTime = localFile.lastModified.getTime();
+					let isDuplicate = false;
+					let skipReason = "Duplicate file already exists on remote";
 
-					if (sizeMatch && Math.abs(remoteTime - localTime) < 2000) {
+					if (sizeMatch) {
+						// 1. Check SHA256 if available
+						if (remoteObj.checksumSha256 && localHash) {
+							if (
+								remoteObj.checksumSha256.toLowerCase() ===
+								localHash.toLowerCase()
+							) {
+								isDuplicate = true;
+								skipReason =
+									"Duplicate file already exists on remote (matching SHA-256)";
+							}
+						}
+						// 2. Check ETag if standard MD5
+						if (
+							!isDuplicate &&
+							remoteObj.etag &&
+							existsSync(localFile.absolutePath)
+						) {
+							const cleanEtag = remoteObj.etag.replace(/^"|"$/g, "");
+							if (/^[a-fA-F0-9]{32}$/.test(cleanEtag)) {
+								const localMd5 = ChecksumUtils.md5(
+									readFileSync(localFile.absolutePath),
+								);
+								if (cleanEtag.toLowerCase() === localMd5.toLowerCase()) {
+									isDuplicate = true;
+									skipReason =
+										"Duplicate file already exists on remote (matching MD5 checksum)";
+								}
+							}
+						}
+						// 3. Size match fallback
+						if (!isDuplicate) {
+							const remoteTime = new Date(remoteObj.lastModified).getTime();
+							const localTime = localFile.lastModified.getTime();
+							if (
+								Math.abs(remoteTime - localTime) < 2000 ||
+								remoteTime >= localTime
+							) {
+								isDuplicate = true;
+								skipReason =
+									"Duplicate file already exists on remote (matching size and timestamp)";
+							}
+						}
+					}
+
+					if (isDuplicate) {
 						skips++;
 						items.push({
 							id: TransferPlanner.makeItemId(items.length + 1),
@@ -128,7 +213,7 @@ export class TransferPlanner {
 							relativePath: relPath,
 							size: localFile.size,
 							action: "skip",
-							reason: "Unmodified (matching size and timestamp)",
+							reason: skipReason,
 							localLastModified: localFile.lastModified,
 							remoteLastModified: remoteObj.lastModified,
 							localHash,

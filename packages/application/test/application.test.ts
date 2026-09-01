@@ -9,6 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ServiceContext } from "../src/service-context.js";
+import { DeleteUseCase } from "../src/use-cases/delete.js";
 import { DumpUseCase } from "../src/use-cases/dump.js";
 import { InitProfileUseCase } from "../src/use-cases/init-profile.js";
 import { ListObjectsUseCase } from "../src/use-cases/list-objects.js";
@@ -134,6 +135,55 @@ describe("Application Use Cases: End-to-End Orchestration", () => {
 		expect(downloadedContent).toBe("Vault Content for Testing E2E");
 	});
 
+	it("supports push with --share and prevents duplicate re-uploading while still returning share URL", async () => {
+		const videoFile = join(tempDir, "demo.mp4");
+		writeFileSync(videoFile, "mp4-video-stream-sample-data");
+
+		const pushUseCase = new PushUseCase(context);
+
+		// 1. Initial push with --share and --expires 3600
+		const pushRes1 = await pushUseCase.execute({
+			source: videoFile,
+			target: "media/demo.mp4",
+			share: true,
+			expiresInSeconds: 3600,
+		});
+
+		expect(pushRes1.success).toBe(true);
+		expect(pushRes1.plan.additions).toBe(1);
+		expect(pushRes1.plan.skips).toBe(0);
+		expect(pushRes1.shareUrl).toBeDefined();
+		expect(pushRes1.shareUrl).toContain("media/demo.mp4");
+		expect(pushRes1.shareExpiresInSeconds).toBe(3600);
+		expect(pushRes1.sharedKey).toBe("media/demo.mp4");
+
+		// 2. Duplicate push without force -> should skip re-upload but still return share link
+		const pushRes2 = await pushUseCase.execute({
+			source: videoFile,
+			target: "media/demo.mp4",
+			share: true,
+			expiresInSeconds: 1800,
+		});
+
+		expect(pushRes2.success).toBe(true);
+		expect(pushRes2.plan.skips).toBe(1);
+		expect(pushRes2.plan.additions).toBe(0);
+		expect(pushRes2.shareUrl).toBeDefined();
+		expect(pushRes2.shareUrl).toContain("media/demo.mp4");
+		expect(pushRes2.shareExpiresInSeconds).toBe(1800);
+
+		// 3. Push with force: true -> should upload
+		const pushRes3 = await pushUseCase.execute({
+			source: videoFile,
+			target: "media/demo.mp4",
+			force: true,
+		});
+
+		expect(pushRes3.success).toBe(true);
+		expect(pushRes3.plan.updates).toBe(1);
+		expect(pushRes3.plan.skips).toBe(0);
+	});
+
 	it("creates point-in-time snapshots and dumps manifest", async () => {
 		// Add sample files
 		const localDir = join(tempDir, "snap-local");
@@ -188,5 +238,57 @@ describe("Application Use Cases: End-to-End Orchestration", () => {
 			direction: "up",
 		});
 		expect(syncExec.success).toBe(true);
+	});
+
+	it("deletes single objects and directory prefixes recursively with cache eviction", async () => {
+		const pushUseCase = new PushUseCase(context);
+		const deleteUseCase = new DeleteUseCase(context);
+		const listUseCase = new ListObjectsUseCase(context);
+
+		const dir = join(tempDir, "to-delete");
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(join(dir, "f1.txt"), "File 1");
+		writeFileSync(join(dir, "f2.txt"), "File 2");
+		writeFileSync(join(dir, "single.txt"), "Single File");
+
+		await pushUseCase.execute({ source: dir, target: "nested/folder" });
+
+		// Verify objects exist
+		let objects = await listUseCase.execute({ path: "nested/folder" });
+		expect(objects.length).toBe(3);
+
+		// 1. Delete single object
+		const delSingle = await deleteUseCase.execute({
+			path: "nested/folder/single.txt",
+		});
+		expect(delSingle.deletedCount).toBe(1);
+		expect(delSingle.deletedKeys).toEqual(["nested/folder/single.txt"]);
+
+		objects = await listUseCase.execute({ path: "nested/folder" });
+		expect(objects.length).toBe(2);
+		expect(objects.some((o) => o.key.endsWith("single.txt"))).toBe(false);
+
+		// 2. Dry run recursive delete
+		const dryRunRes = await deleteUseCase.execute({
+			path: "nested/folder",
+			recursive: true,
+			dryRun: true,
+		});
+		expect(dryRunRes.deletedCount).toBe(2);
+		expect(dryRunRes.dryRun).toBe(true);
+
+		// Objects still present after dry-run
+		objects = await listUseCase.execute({ path: "nested/folder" });
+		expect(objects.length).toBe(2);
+
+		// 3. Actual recursive delete
+		const recRes = await deleteUseCase.execute({
+			path: "nested/folder",
+			recursive: true,
+		});
+		expect(recRes.deletedCount).toBe(2);
+
+		objects = await listUseCase.execute({ path: "nested/folder" });
+		expect(objects.length).toBe(0);
 	});
 });

@@ -210,7 +210,8 @@ export class TuiStateManager {
 		}
 
 		try {
-			const { runtimeConfig, storage } = context.resolveRuntime();
+			const { runtimeConfig, storage } =
+				await context.resolveStorageWithCredentials();
 			this.state.activeProfileName = runtimeConfig.profileName;
 			this.state.activeBucket = runtimeConfig.bucket;
 			this.state.provider = runtimeConfig.provider;

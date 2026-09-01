@@ -46,4 +46,14 @@ describe("Output: Formatter & JSON Envelope", () => {
 		expect(parsedError.exitCode).toBe(2);
 		expect(parsedError.details.profile).toBe("dev");
 	});
+
+	it("handles clipboard copying gracefully without throwing", async () => {
+		const { ClipboardUtils } = await import("../src/clipboard.js");
+		const resEmpty = await ClipboardUtils.copy("");
+		expect(resEmpty).toBe(false);
+
+		// Non-empty copy should execute without throwing
+		const res = await ClipboardUtils.copy("https://s3.example.com/test.png");
+		expect(typeof res).toBe("boolean");
+	});
 });

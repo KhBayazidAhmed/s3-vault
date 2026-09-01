@@ -132,4 +132,46 @@ describe("Transfer: Planner & Engine", () => {
 		});
 		expect(head).toBeNull(); // Untouched
 	});
+
+	it("skips duplicate upload when matching file already exists on remote", async () => {
+		const filePath = join(tempDir, "sample.mp4");
+		writeFileSync(filePath, "video-binary-content-12345");
+
+		// Put identical object in remote
+		await backend.putObject({
+			bucket: "test-bucket",
+			key: "sample.mp4",
+			body: "video-binary-content-12345",
+		});
+
+		// 1. Plan push without force
+		const plan = await TransferPlanner.plan(backend, {
+			direction: "push",
+			localPath: filePath,
+			remoteBucket: "test-bucket",
+			remotePrefix: "sample.mp4",
+			computeHash: true,
+		});
+
+		expect(plan.totalCount).toBe(1);
+		expect(plan.skips).toBe(1);
+		expect(plan.additions).toBe(0);
+		expect(plan.updates).toBe(0);
+		expect(plan.items[0]?.action).toBe("skip");
+		expect(plan.items[0]?.reason).toContain("Duplicate");
+
+		// 2. Plan push with force: true
+		const forcePlan = await TransferPlanner.plan(backend, {
+			direction: "push",
+			localPath: filePath,
+			remoteBucket: "test-bucket",
+			remotePrefix: "sample.mp4",
+			computeHash: true,
+			force: true,
+		});
+
+		expect(forcePlan.skips).toBe(0);
+		expect(forcePlan.updates).toBe(1);
+		expect(forcePlan.items[0]?.action).toBe("upload");
+	});
 });

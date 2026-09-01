@@ -31,6 +31,14 @@ describe("CLI Program: Subcommands Registration", () => {
 		expect(commandNames).toContain("snapshots");
 		expect(commandNames).toContain("dump");
 		expect(commandNames).toContain("tui");
+		expect(commandNames).toContain("rm");
+
+		const pushCmd = program.commands.find((c) => c.name() === "push");
+		expect(pushCmd).toBeDefined();
+		const pushOptionNames = pushCmd?.options.map((o) => o.name());
+		expect(pushOptionNames).toContain("share");
+		expect(pushOptionNames).toContain("expires");
+		expect(pushOptionNames).toContain("force");
 
 		context.dbManager.close();
 		rmSync(tempDir, { recursive: true, force: true });
