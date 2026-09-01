@@ -1,0 +1,16 @@
+{
+	"name": "@S3-vault-CLI/state",
+	"version": "0.1.0",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"dependencies": {
+		"@S3-vault-CLI/config": "workspace:*",
+		"@S3-vault-CLI/domain": "workspace:*"
+	},
+	"devDependencies": {
+		"@types/node": "catalog:",
+		"typescript": "catalog:"
+	}
+}
