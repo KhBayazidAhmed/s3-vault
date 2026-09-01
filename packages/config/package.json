@@ -1,5 +1,17 @@
 {
-  "name": "@S3-vault-CLI/config",
-  "version": "0.0.0",
-  "private": true
+	"name": "@S3-vault-CLI/config",
+	"version": "0.1.0",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts",
+		"./tsconfig.base.json": "./tsconfig.base.json"
+	},
+	"dependencies": {
+		"@S3-vault-CLI/domain": "workspace:*",
+		"zod": "catalog:"
+	},
+	"devDependencies": {
+		"@types/node": "catalog:",
+		"typescript": "catalog:"
+	}
 }
