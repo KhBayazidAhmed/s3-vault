@@ -1,14 +1,19 @@
-import { ASCIIFont, Box, createCliRenderer, Text, TextAttributes } from "@opentui/core";
+import { ServiceContext } from "@S3-vault-CLI/application";
+import { createCliProgram } from "./cli.js";
+import { runInteractiveTui } from "./tui-app.js";
 
-const renderer = await createCliRenderer({ exitOnCtrlC: true });
+const args = process.argv;
 
-renderer.root.add(
-  Box(
-    { alignItems: "center", justifyContent: "center", flexGrow: 1 },
-    Box(
-      { justifyContent: "center", alignItems: "flex-end" },
-      ASCIIFont({ font: "tiny", text: "OpenTUI" }),
-      Text({ content: "What will you build?", attributes: TextAttributes.DIM }),
-    ),
-  ),
-);
+// If user ran bare `vault` without arguments in an interactive TTY, launch interactive TUI dashboard!
+if (args.length <= 2 && process.stdout.isTTY && !process.env.CI) {
+	const context = new ServiceContext();
+	try {
+		await runInteractiveTui(context);
+	} catch {
+		const program = createCliProgram(context);
+		program.parse(process.argv);
+	}
+} else {
+	const program = createCliProgram();
+	program.parse(process.argv);
+}

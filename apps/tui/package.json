@@ -1,19 +1,30 @@
 {
-  "name": "tui",
-  "private": true,
-  "type": "module",
-  "module": "src/index.tsx",
-  "scripts": {
-    "dev": "bun run --watch src/index.ts",
-    "check-types": "tsc --noEmit"
-  },
-  "dependencies": {
-    "@opentui/core": "^0.5.8"
-  },
-  "devDependencies": {
-    "@types/bun": "latest"
-  },
-  "peerDependencies": {
-    "typescript": "^5"
-  }
+	"name": "@S3-vault-CLI/tui",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"bin": {
+		"vault": "./bin/vault.js"
+	},
+	"scripts": {
+		"start": "bun run src/index.ts",
+		"dev": "bun run --watch src/index.ts",
+		"check-types": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@S3-vault-CLI/application": "workspace:*",
+		"@S3-vault-CLI/config": "workspace:*",
+		"@S3-vault-CLI/domain": "workspace:*",
+		"@S3-vault-CLI/output": "workspace:*",
+		"@S3-vault-CLI/secrets": "workspace:*",
+		"@S3-vault-CLI/storage": "workspace:*",
+		"@S3-vault-CLI/transfer": "workspace:*",
+		"@opentui/core": "^0.5.8",
+		"commander": "^13.1.0"
+	},
+	"devDependencies": {
+		"@S3-vault-CLI/config": "workspace:*",
+		"@types/node": "catalog:",
+		"typescript": "catalog:"
+	}
 }
