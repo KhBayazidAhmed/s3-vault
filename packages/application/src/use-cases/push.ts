@@ -64,6 +64,8 @@ export class PushUseCase {
 					runtimeConfig.transferSettings.multipartThresholdBytes,
 				partSizeBytes: runtimeConfig.transferSettings.partSizeBytes,
 				maxRetries: runtimeConfig.transferSettings.maxRetries,
+				retryBaseDelayMs: runtimeConfig.transferSettings.retryBaseDelayMs,
+				retryMaxDelayMs: runtimeConfig.transferSettings.retryMaxDelayMs,
 				verifyChecksum: runtimeConfig.transferSettings.verifyChecksum,
 				dryRun: options.dryRun,
 			},

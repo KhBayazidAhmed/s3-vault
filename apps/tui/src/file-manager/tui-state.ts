@@ -2,6 +2,7 @@ import {
 	LocalUploadStatusUseCase,
 	type ServiceContext,
 } from "@S3-vault-CLI/application";
+import type { StorageBackend } from "@S3-vault-CLI/storage";
 import { LocalBrowser } from "./local-browser.js";
 import { RemoteBrowser } from "./remote-browser.js";
 import type {
@@ -172,21 +173,54 @@ export class TuiStateManager {
 				bucket: this.state.activeBucket,
 				files: this.state.localItems,
 			});
-			this.state.localItems = this.state.localItems.map((item) => {
-				const result = statuses.get(item.path);
-				return result
-					? {
-							...item,
-							uploadStatus: result.status,
-							uploadedDestination: result.destination,
-						}
-					: item;
-			});
+			this.applyLocalUploadStatuses(statuses);
 		}
+		this.normalizeLocalCursor();
+		this.notify();
+	}
+
+	private async refreshLocalWithRemoteVerification(storage: StorageBackend) {
+		this.state.localItems = LocalBrowser.readDirectory(this.state.localPath);
+		if (
+			this.context &&
+			this.state.activeProfileName &&
+			this.state.activeBucket
+		) {
+			const statuses = await new LocalUploadStatusUseCase(
+				this.context,
+			).executeWithRemoteVerification(
+				{
+					profileName: this.state.activeProfileName,
+					bucket: this.state.activeBucket,
+					files: this.state.localItems,
+				},
+				storage,
+			);
+			this.applyLocalUploadStatuses(statuses);
+		}
+		this.normalizeLocalCursor();
+		this.notify();
+	}
+
+	private applyLocalUploadStatuses(
+		statuses: ReturnType<LocalUploadStatusUseCase["execute"]>,
+	) {
+		this.state.localItems = this.state.localItems.map((item) => {
+			const result = statuses.get(item.path);
+			return result
+				? {
+						...item,
+						uploadStatus: result.status,
+						uploadedDestination: result.destination,
+					}
+				: item;
+		});
+	}
+
+	private normalizeLocalCursor() {
 		if (this.state.localCursor >= this.state.localItems.length) {
 			this.state.localCursor = Math.max(0, this.state.localItems.length - 1);
 		}
-		this.notify();
 	}
 
 	setLocalPath(newPath: string) {
@@ -262,6 +296,8 @@ export class TuiStateManager {
 					this.state.remoteItems.length - 1,
 				);
 			}
+			await this.refreshLocalWithRemoteVerification(storage);
+			return;
 		} catch {
 			this.state.statusOk = false;
 			this.state.remoteItems = [];

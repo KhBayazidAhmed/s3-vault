@@ -58,6 +58,11 @@ export class DeleteUseCase {
 						bucket: runtimeConfig.bucket,
 						key,
 					});
+					this.context.uploadedFileRepo.removeByRemoteKey(
+						runtimeConfig.profileName,
+						runtimeConfig.bucket,
+						key,
+					);
 				}
 				this.context.cacheManager.evictPrefix(
 					runtimeConfig.profileName,
@@ -81,6 +86,11 @@ export class DeleteUseCase {
 				bucket: runtimeConfig.bucket,
 				key: cleanPath,
 			});
+			this.context.uploadedFileRepo.removeByRemoteKey(
+				runtimeConfig.profileName,
+				runtimeConfig.bucket,
+				cleanPath,
+			);
 			this.context.cacheManager.evictObject(
 				runtimeConfig.profileName,
 				runtimeConfig.bucket,

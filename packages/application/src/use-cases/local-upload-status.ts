@@ -3,6 +3,7 @@ import {
 	type LocalUploadStatus,
 	type UploadedFileRecord,
 } from "@S3-vault-CLI/domain";
+import type { StorageBackend } from "@S3-vault-CLI/storage";
 import { readFileSync } from "node:fs";
 import type { ServiceContext } from "../service-context.js";
 
@@ -65,6 +66,57 @@ export class LocalUploadStatusUseCase {
 				results.set(file.path, { status: "new" });
 			}
 		}
+
+		return results;
+	}
+
+	async executeWithRemoteVerification(
+		input: {
+			profileName: string;
+			bucket: string;
+			files: LocalFileStatusInput[];
+		},
+		storage: StorageBackend,
+	): Promise<Map<string, LocalFileStatusResult>> {
+		const results = this.execute(input);
+
+		await Promise.all(
+			[...results.entries()].map(async ([path, result]) => {
+				const record = result.record;
+				if (!record) return;
+
+				try {
+					const remote = await storage.headObject({
+						bucket: input.bucket,
+						key: record.remoteKey,
+					});
+					if (!remote) {
+						results.set(path, { ...result, status: "remote-missing" });
+						return;
+					}
+
+					const checksumsComparable =
+						!!record.remoteChecksumSha256 && !!remote.checksumSha256;
+					const checksumChanged =
+						checksumsComparable &&
+						record.remoteChecksumSha256 !== remote.checksumSha256;
+					const etagChanged =
+						!checksumsComparable &&
+						!!record.remoteEtag &&
+						!!remote.etag &&
+						record.remoteEtag !== remote.etag;
+					if (
+						remote.size !== record.fileSize ||
+						checksumChanged ||
+						etagChanged
+					) {
+						results.set(path, { ...result, status: "remote-changed" });
+					}
+				} catch {
+					// Keep the local status when remote verification is temporarily unavailable.
+				}
+			}),
+		);
 
 		return results;
 	}

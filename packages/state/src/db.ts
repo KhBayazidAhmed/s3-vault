@@ -182,6 +182,21 @@ export class DatabaseManager {
 				);
 			})();
 		}
+
+		if (currentVersion < 3) {
+			this.db.transaction(() => {
+				this.db.run(
+					"ALTER TABLE multipart_uploads ADD COLUMN source_mtime_ms REAL",
+				);
+				this.db.run(
+					"ALTER TABLE multipart_uploads ADD COLUMN source_sha256 TEXT",
+				);
+				this.db.run(
+					"INSERT INTO schema_migrations (version, applied_at) VALUES (3, ?)",
+					[new Date().toISOString()],
+				);
+			})();
+		}
 	}
 
 	close(): void {

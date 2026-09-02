@@ -42,6 +42,8 @@ export class PullUseCase {
 				bucket: runtimeConfig.bucket,
 				concurrency: runtimeConfig.transferSettings.concurrency,
 				maxRetries: runtimeConfig.transferSettings.maxRetries,
+				retryBaseDelayMs: runtimeConfig.transferSettings.retryBaseDelayMs,
+				retryMaxDelayMs: runtimeConfig.transferSettings.retryMaxDelayMs,
 				verifyChecksum: runtimeConfig.transferSettings.verifyChecksum,
 				dryRun: options.dryRun,
 			},

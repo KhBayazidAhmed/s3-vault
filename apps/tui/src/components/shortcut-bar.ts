@@ -32,6 +32,7 @@ export function renderProgressBar(percentage: number, width = 16): string {
 
 export function createHeaderView(renderer: CliRenderer) {
 	const headerText = new TextRenderable(renderer, { content: "" });
+	const progressText = new TextRenderable(renderer, { content: "" });
 
 	const container = new BoxRenderable(renderer, {
 		flexDirection: "row",
@@ -47,6 +48,7 @@ export function createHeaderView(renderer: CliRenderer) {
 		width: "100%",
 	});
 	container.add(headerText);
+	container.add(progressText);
 
 	const update = (state: TuiState) => {
 		const termWidth = process.stdout.columns || renderer.width || 80;
@@ -70,7 +72,25 @@ export function createHeaderView(renderer: CliRenderer) {
 		const bucketText = state.activeBucket ? blue(bold(state.activeBucket)) : "";
 		const bucketPrefix = state.activeBucket ? "  •  Bucket: " : "";
 
-		if (termWidth < 72) {
+		if (state.progress.active) {
+			const bytes = `${Formatter.formatBytes(state.progress.transferredBytes)} / ${Formatter.formatBytes(state.progress.totalBytes)}`;
+			const barWidth = termWidth < 100 ? 8 : 12;
+			const bar = renderProgressBar(state.progress.percentage, barWidth);
+			const showBytes = termWidth >= 120;
+			const byteSummary = showBytes ? ` (${bytes})` : "";
+			const maxLabelWidth = Math.max(
+				8,
+				Math.min(32, termWidth - bar.length - byteSummary.length - 40),
+			);
+			const label = truncateEnd(state.progress.label, maxLabelWidth);
+			progressText.content = t`⚡ ${cyan(bold(label))} ${bar}${byteSummary}`;
+		} else {
+			progressText.content = "";
+		}
+
+		if (termWidth < 72 && state.progress.active) {
+			headerText.content = "";
+		} else if (termWidth < 72 || (state.progress.active && termWidth < 120)) {
 			const compactStatus = state.statusOk
 				? green(bold("● Online"))
 				: yellow(bold("● Offline"));
@@ -81,7 +101,9 @@ export function createHeaderView(renderer: CliRenderer) {
 						),
 					)
 				: yellow("No Profile");
-			headerText.content = t`🔐 ${compactProfile}  ${compactStatus}`;
+			headerText.content = state.progress.active
+				? t`🔐 ${compactProfile}`
+				: t`🔐 ${compactProfile}  ${compactStatus}`;
 		} else {
 			headerText.content = t`🔐 Profile: ${profileName} ${providerText}  •  Status: ${healthBadge}${bucketPrefix}${bucketText}`;
 		}
@@ -111,21 +133,8 @@ export function createBottomBarView(renderer: CliRenderer) {
 		const contentWidth = Math.max(20, termWidth - 6);
 		const chunks: TextChunk[] = [];
 
-		// Row 1: Live Status or Progress
-		if (state.progress.active) {
-			const bytes = `${Formatter.formatBytes(state.progress.transferredBytes)} / ${Formatter.formatBytes(state.progress.totalBytes)}`;
-			const barWidth = termWidth < 72 ? 8 : termWidth < 100 ? 12 : 16;
-			const showBytes = termWidth >= 50;
-			const byteSummary = showBytes ? ` (${bytes})` : "";
-			const reservedWidth = barWidth + byteSummary.length + 11;
-			const label = truncateEnd(
-				state.progress.label,
-				Math.max(4, contentWidth - reservedWidth),
-			);
-			const bar = renderProgressBar(state.progress.percentage, barWidth);
-			const progressChunk = t`⚡ ${cyan(bold(label))} ${bar}${byteSummary}`;
-			chunks.push(...progressChunk.chunks);
-		} else if (state.statusType === "success") {
+		// Row 1: Live status. Transfer progress is displayed in the header.
+		if (state.statusType === "success") {
 			const statusChunk = t`${green(bold("✔"))} ${truncateEnd(state.statusMessage, contentWidth - 2)}`;
 			chunks.push(...statusChunk.chunks);
 		} else if (state.statusType === "error") {

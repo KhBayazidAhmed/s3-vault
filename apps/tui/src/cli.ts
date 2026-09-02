@@ -25,9 +25,25 @@ import {
 	logger,
 	TerminalProgressBar,
 } from "@S3-vault-CLI/output";
-import { Command } from "commander";
+import { Command, InvalidArgumentError } from "commander";
 import { CliPrompts } from "./prompts.js";
 import { runInteractiveTui } from "./tui-app.js";
+
+function parsePositiveInteger(value: string): number {
+	const parsed = Number(value);
+	if (!Number.isInteger(parsed) || parsed < 1) {
+		throw new InvalidArgumentError("Expected a positive integer.");
+	}
+	return parsed;
+}
+
+function parseMiB(value: string): number {
+	const parsed = Number(value);
+	if (!Number.isFinite(parsed) || parsed < 5) {
+		throw new InvalidArgumentError("Expected a size of at least 5 MiB.");
+	}
+	return Math.floor(parsed * 1024 * 1024);
+}
 
 export function createCliProgram(
 	context: ServiceContext = new ServiceContext(),
@@ -395,6 +411,32 @@ export function createCliProgram(
 		.option("--dry-run", "Show upload plan without executing transfers")
 		.option("--no-verify", "Skip post-transfer checksum verification")
 		.option(
+			"--concurrency <count>",
+			"Parallel file uploads and shared multipart part limit",
+			parsePositiveInteger,
+		)
+		.option(
+			"--part-size-mib <mib>",
+			"Multipart part size in MiB (minimum: 5)",
+			parseMiB,
+		)
+		.option(
+			"--multipart-threshold-mib <mib>",
+			"Use multipart uploads for files at or above this size in MiB",
+			parseMiB,
+		)
+		.option(
+			"--max-retries <count>",
+			"Retry attempts for transient upload failures",
+			(value: string) => {
+				const parsed = Number(value);
+				if (!Number.isInteger(parsed) || parsed < 0) {
+					throw new InvalidArgumentError("Expected a non-negative integer.");
+				}
+				return parsed;
+			},
+		)
+		.option(
 			"-s, --share",
 			"Generate a presigned shareable link immediately after upload",
 		)
@@ -421,6 +463,10 @@ export function createCliProgram(
 					excludes: cmdOpts.exclude,
 					dryRun: cmdOpts.dryRun,
 					verifyChecksum: cmdOpts.verify !== false,
+					concurrency: cmdOpts.concurrency,
+					partSizeBytes: cmdOpts.partSizeMib,
+					multipartThresholdBytes: cmdOpts.multipartThresholdMib,
+					maxRetries: cmdOpts.maxRetries,
 					force: cmdOpts.force,
 					share: cmdOpts.share,
 					expiresInSeconds: cmdOpts.expires,

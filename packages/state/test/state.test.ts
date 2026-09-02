@@ -25,16 +25,29 @@ describe("State: Database, Transfers, Multipart, Locks, Snapshots & Uploaded Fil
 		rmSync(tempDir, { recursive: true, force: true });
 	});
 
-	it("runs the uploaded-files v2 migration with the required indexes", () => {
+	it("runs state migrations with uploaded-file indexes and multipart fingerprints", () => {
 		const migration = dbManager.rawDb
 			.query("SELECT version FROM schema_migrations WHERE version = 2")
 			.get() as { version: number } | null;
+		const multipartMigration = dbManager.rawDb
+			.query("SELECT version FROM schema_migrations WHERE version = 3")
+			.get() as { version: number } | null;
+		const multipartColumns = dbManager.rawDb
+			.query("PRAGMA table_info('multipart_uploads')")
+			.all() as { name: string }[];
 		const indexes = dbManager.rawDb
 			.query("PRAGMA index_list('uploaded_files')")
 			.all() as { name: string }[];
 		const indexNames = indexes.map((index) => index.name);
 
 		expect(migration?.version).toBe(2);
+		expect(multipartMigration?.version).toBe(3);
+		expect(multipartColumns.map((column) => column.name)).toContain(
+			"source_mtime_ms",
+		);
+		expect(multipartColumns.map((column) => column.name)).toContain(
+			"source_sha256",
+		);
 		expect(indexNames).toContain("idx_uploaded_files_local_path");
 		expect(indexNames).toContain("idx_uploaded_files_identity");
 		expect(indexNames).toContain("idx_uploaded_files_hash_size");
@@ -160,6 +173,8 @@ describe("State: Database, Transfers, Multipart, Locks, Snapshots & Uploaded Fil
 			partSize: 8 * 1024 * 1024,
 			totalParts: 4,
 			totalBytes: 32 * 1024 * 1024,
+			sourceMtimeMs: 1_788_000_000_000,
+			sourceSha256: "large-file-sha256",
 		});
 
 		multipartRepo.recordPart({
@@ -186,6 +201,8 @@ describe("State: Database, Transfers, Multipart, Locks, Snapshots & Uploaded Fil
 		expect(activeSession).not.toBeNull();
 		expect(activeSession?.uploadId).toBe("mp_upload_123");
 		expect(activeSession?.parts.length).toBe(2);
+		expect(activeSession?.sourceMtimeMs).toBe(1_788_000_000_000);
+		expect(activeSession?.sourceSha256).toBe("large-file-sha256");
 		expect(activeSession?.parts.map((p) => p.partNumber)).toEqual([1, 2]);
 	});
 

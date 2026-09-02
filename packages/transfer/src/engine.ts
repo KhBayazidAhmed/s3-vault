@@ -52,6 +52,7 @@ export class TransferEngine extends EventEmitter {
 	private uploadedFileRepo?: UploadedFileRepository;
 	private options: Required<TransferEngineOptions>;
 	private workerPool: WorkerPool;
+	private multipartWorkerPool: WorkerPool;
 	private retryOptions: RetryOptions;
 
 	constructor(
@@ -84,6 +85,7 @@ export class TransferEngine extends EventEmitter {
 		};
 
 		this.workerPool = new WorkerPool(this.options.concurrency);
+		this.multipartWorkerPool = new WorkerPool(this.options.concurrency);
 		this.retryOptions = {
 			maxRetries: this.options.maxRetries,
 			baseDelayMs: this.options.retryBaseDelayMs,
@@ -314,15 +316,18 @@ export class TransferEngine extends EventEmitter {
 		}
 
 		// Multipart upload
-		return await this.uploadMultipartItem(filePath, key, fileSize, onBytes);
+		return await this.uploadMultipartItem(item, onBytes);
 	}
 
 	private async uploadMultipartItem(
-		filePath: string,
-		key: string,
-		fileSize: number,
+		item: TransferItem,
 		onBytes: (bytes: number) => void,
 	): Promise<PutObjectResult> {
+		const filePath = item.sourcePath;
+		const key = item.targetPath;
+		const fileSize = item.size;
+		const sourceStats = statSync(filePath);
+		const sourceMtimeMs = sourceStats.mtimeMs;
 		const partSize = this.options.partSizeBytes;
 		const totalParts = Math.ceil(fileSize / partSize);
 
@@ -337,21 +342,48 @@ export class TransferEngine extends EventEmitter {
 			filePath,
 		);
 
-		if (
-			existingSession &&
+		const canResume =
+			existingSession != null &&
 			existingSession.partSize === partSize &&
-			existingSession.totalParts === totalParts
-		) {
+			existingSession.totalParts === totalParts &&
+			existingSession.totalBytes === fileSize &&
+			existingSession.sourceMtimeMs !== undefined &&
+			Math.abs(existingSession.sourceMtimeMs - sourceMtimeMs) < 1 &&
+			(item.localHash === undefined ||
+				existingSession.sourceSha256 === item.localHash);
+
+		if (existingSession && canResume) {
 			uploadId = existingSession.uploadId;
 			for (const p of existingSession.parts) {
 				completedPartsMap.set(p.partNumber, p);
 				onBytes(p.size);
 			}
 		} else {
-			const init = await this.storage.createMultipartUpload({
-				bucket: this.options.bucket,
-				key,
-			});
+			if (existingSession) {
+				try {
+					await this.storage.abortMultipartUpload({
+						bucket: this.options.bucket,
+						key,
+						uploadId: existingSession.uploadId,
+					});
+				} catch (error) {
+					this.emit("state-warning", {
+						item,
+						message: `Could not clean up stale multipart upload '${existingSession.uploadId}': ${error instanceof Error ? error.message : String(error)}`,
+					});
+				} finally {
+					this.multipartRepo?.markAborted(existingSession.uploadId);
+				}
+			}
+
+			const init = await RetryUtils.withRetry(
+				async () =>
+					await this.storage.createMultipartUpload({
+						bucket: this.options.bucket,
+						key,
+					}),
+				this.retryOptions,
+			);
 			uploadId = init.uploadId;
 
 			this.multipartRepo?.saveSession({
@@ -363,56 +395,102 @@ export class TransferEngine extends EventEmitter {
 				partSize,
 				totalParts,
 				totalBytes: fileSize,
+				sourceMtimeMs,
+				sourceSha256: item.localHash,
 			});
 		}
 
 		const fd = openSync(filePath, "r");
 
 		try {
+			const partTasks: Promise<void>[] = [];
+
 			for (let partNumber = 1; partNumber <= totalParts; partNumber++) {
 				if (completedPartsMap.has(partNumber)) {
 					continue; // Part already uploaded in previous session
 				}
 
-				const startOffset = (partNumber - 1) * partSize;
-				const currentPartSize = Math.min(partSize, fileSize - startOffset);
-				const partBuffer = Buffer.alloc(currentPartSize);
+				partTasks.push(
+					this.multipartWorkerPool.run(async () => {
+						const startOffset = (partNumber - 1) * partSize;
+						const currentPartSize = Math.min(partSize, fileSize - startOffset);
+						const partBuffer = Buffer.allocUnsafe(currentPartSize);
+						const bytesRead = readSync(
+							fd,
+							partBuffer,
+							0,
+							currentPartSize,
+							startOffset,
+						);
+						if (bytesRead !== currentPartSize) {
+							throw new IntegrityError(
+								`Source file '${filePath}' changed or became unreadable during upload.`,
+								{ key },
+							);
+						}
 
-				readSync(fd, partBuffer, 0, currentPartSize, startOffset);
+						const uploadedPart = await RetryUtils.withRetry(async () => {
+							return await this.storage.uploadPart({
+								bucket: this.options.bucket,
+								key,
+								uploadId,
+								partNumber,
+								body: partBuffer,
+								size: currentPartSize,
+							});
+						}, this.retryOptions);
 
-				const uploadedPart = await RetryUtils.withRetry(async () => {
-					return await this.storage.uploadPart({
-						bucket: this.options.bucket,
-						key,
-						uploadId,
-						partNumber,
-						body: partBuffer,
-						size: currentPartSize,
-					});
-				}, this.retryOptions);
-
-				completedPartsMap.set(partNumber, uploadedPart);
-				this.multipartRepo?.recordPart({
-					uploadId,
-					partNumber,
-					etag: uploadedPart.etag,
-					checksumSha256: uploadedPart.checksumSha256,
-					size: currentPartSize,
-				});
-
-				onBytes(currentPartSize);
+						completedPartsMap.set(partNumber, uploadedPart);
+						this.multipartRepo?.recordPart({
+							uploadId,
+							partNumber,
+							etag: uploadedPart.etag,
+							checksumSha256: uploadedPart.checksumSha256,
+							size: currentPartSize,
+						});
+						onBytes(currentPartSize);
+					}),
+				);
 			}
 
-			// Complete multipart upload
+			const partResults = await Promise.allSettled(partTasks);
+			const failedPart = partResults.find(
+				(result): result is PromiseRejectedResult =>
+					result.status === "rejected",
+			);
+			if (failedPart) throw failedPart.reason;
+
+			const finalStats = statSync(filePath);
+			if (
+				finalStats.size !== fileSize ||
+				Math.abs(finalStats.mtimeMs - sourceMtimeMs) >= 1
+			) {
+				await this.storage.abortMultipartUpload({
+					bucket: this.options.bucket,
+					key,
+					uploadId,
+				});
+				this.multipartRepo?.markAborted(uploadId);
+				throw new IntegrityError(
+					`Source file '${filePath}' changed during upload; the multipart upload was aborted.`,
+					{ key },
+				);
+			}
+
+			// Complete multipart upload only after every part is durably recorded.
 			const sortedParts = Array.from(completedPartsMap.values()).sort(
 				(a, b) => a.partNumber - b.partNumber,
 			);
-			const result = await this.storage.completeMultipartUpload({
-				bucket: this.options.bucket,
-				key,
-				uploadId,
-				parts: sortedParts,
-			});
+			const result = await RetryUtils.withRetry(
+				async () =>
+					await this.storage.completeMultipartUpload({
+						bucket: this.options.bucket,
+						key,
+						uploadId,
+						parts: sortedParts,
+					}),
+				this.retryOptions,
+			);
 
 			this.multipartRepo?.markCompleted(uploadId);
 			return result;

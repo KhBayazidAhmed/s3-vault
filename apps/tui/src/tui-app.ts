@@ -310,7 +310,6 @@ export async function runInteractiveTui(context: ServiceContext) {
 			}
 
 			try {
-				stateManager.setStatus(`Uploading '${item.name}'...`, "info");
 				stateManager.setProgress({
 					active: true,
 					label: `Uploading ${item.name}`,
@@ -384,7 +383,6 @@ export async function runInteractiveTui(context: ServiceContext) {
 			}
 
 			try {
-				stateManager.setStatus(`Downloading '${item.name}'...`, "info");
 				stateManager.setProgress({
 					active: true,
 					label: `Downloading ${item.name}`,

@@ -1,3 +1,4 @@
+import { DatabaseManager, MultipartRepository } from "@S3-vault-CLI/state";
 import { InMemoryStorageBackend } from "@S3-vault-CLI/test-backend";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -105,6 +106,114 @@ describe("Transfer: Planner & Engine", () => {
 		expect(head).not.toBeNull();
 		expect(head?.size).toBe(totalSize);
 		expect(head?.etag.endsWith('-6"')).toBe(true); // 6 parts
+	});
+
+	it("uploads multipart parts concurrently within the configured limit", async () => {
+		const totalSize = 600 * 1024;
+		writeFileSync(join(tempDir, "parallel.bin"), Buffer.alloc(totalSize, "p"));
+		const plan = await TransferPlanner.plan(backend, {
+			direction: "push",
+			localPath: tempDir,
+			remoteBucket: "test-bucket",
+			remotePrefix: "parallel-dest",
+		});
+
+		const originalUploadPart = backend.uploadPart.bind(backend);
+		let activeParts = 0;
+		let maxActiveParts = 0;
+		backend.uploadPart = async (input) => {
+			activeParts++;
+			maxActiveParts = Math.max(maxActiveParts, activeParts);
+			try {
+				await new Promise((resolve) => setTimeout(resolve, 10));
+				return await originalUploadPart(input);
+			} finally {
+				activeParts--;
+			}
+		};
+
+		const engine = new TransferEngine(backend, {
+			profileName: "test-prof",
+			bucket: "test-bucket",
+			concurrency: 3,
+			multipartThresholdBytes: 200 * 1024,
+			partSizeBytes: 100 * 1024,
+		});
+
+		const result = await engine.execute(plan);
+		expect(result.success).toBe(true);
+		expect(maxActiveParts).toBe(3);
+	});
+
+	it("does not resume multipart parts when the source content changed", async () => {
+		const dbManager = new DatabaseManager(join(tempDir, "resume-state.db"));
+		try {
+			const multipartRepo = new MultipartRepository(dbManager.rawDb);
+			const filePath = join(tempDir, "resume.bin");
+			writeFileSync(filePath, Buffer.alloc(400 * 1024, "a"));
+
+			let createdSessions = 0;
+			const originalCreateMultipart =
+				backend.createMultipartUpload.bind(backend);
+			backend.createMultipartUpload = async (input) => {
+				createdSessions++;
+				return await originalCreateMultipart(input);
+			};
+			backend.injectFailure({
+				operation: "uploadPart",
+				partNumber: 2,
+				timesRemaining: 1,
+				error: new Error("connection dropped"),
+			});
+
+			const firstPlan = await TransferPlanner.plan(backend, {
+				direction: "push",
+				localPath: filePath,
+				remoteBucket: "test-bucket",
+				remotePrefix: "resume.bin",
+				computeHash: true,
+			});
+			const firstEngine = new TransferEngine(
+				backend,
+				{
+					profileName: "test-prof",
+					bucket: "test-bucket",
+					concurrency: 1,
+					multipartThresholdBytes: 200 * 1024,
+					partSizeBytes: 100 * 1024,
+					maxRetries: 0,
+				},
+				{ multipartRepo },
+			);
+			expect((await firstEngine.execute(firstPlan)).success).toBe(false);
+
+			writeFileSync(filePath, Buffer.alloc(400 * 1024, "b"));
+			backend.clearFailures();
+			const secondPlan = await TransferPlanner.plan(backend, {
+				direction: "push",
+				localPath: filePath,
+				remoteBucket: "test-bucket",
+				remotePrefix: "resume.bin",
+				computeHash: true,
+			});
+			const secondEngine = new TransferEngine(
+				backend,
+				{
+					profileName: "test-prof",
+					bucket: "test-bucket",
+					concurrency: 2,
+					multipartThresholdBytes: 200 * 1024,
+					partSizeBytes: 100 * 1024,
+					maxRetries: 0,
+				},
+				{ multipartRepo },
+			);
+
+			expect((await secondEngine.execute(secondPlan)).success).toBe(true);
+			expect(createdSessions).toBe(2);
+		} finally {
+			dbManager.close();
+		}
 	});
 
 	it("supports dry-run without writing to remote backend", async () => {

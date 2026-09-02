@@ -9,6 +9,8 @@ export interface StoredMultipartSession {
 	partSize: number;
 	totalParts: number;
 	totalBytes: number;
+	sourceMtimeMs?: number;
+	sourceSha256?: string;
 	status: "in_progress" | "completed" | "aborted";
 	createdAt: string;
 	updatedAt: string;
@@ -36,13 +38,16 @@ export class MultipartRepository {
 		partSize: number;
 		totalParts: number;
 		totalBytes: number;
+		sourceMtimeMs: number;
+		sourceSha256?: string;
 	}): void {
 		const now = new Date().toISOString();
 		this.db.run(
 			`INSERT OR REPLACE INTO multipart_uploads (
-        upload_id, profile_name, bucket, key, file_path,
-        part_size, total_parts, total_bytes, status, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'in_progress', ?, ?)`,
+	        upload_id, profile_name, bucket, key, file_path,
+	        part_size, total_parts, total_bytes, source_mtime_ms, source_sha256,
+	        status, created_at, updated_at
+	      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'in_progress', ?, ?)`,
 			[
 				session.uploadId,
 				session.profileName,
@@ -52,6 +57,8 @@ export class MultipartRepository {
 				session.partSize,
 				session.totalParts,
 				session.totalBytes,
+				session.sourceMtimeMs,
+				session.sourceSha256 ?? null,
 				now,
 				now,
 			],
@@ -119,6 +126,8 @@ export class MultipartRepository {
 			partSize: row.part_size,
 			totalParts: row.total_parts,
 			totalBytes: row.total_bytes,
+			sourceMtimeMs: row.source_mtime_ms ?? undefined,
+			sourceSha256: row.source_sha256 ?? undefined,
 			status: row.status,
 			createdAt: row.created_at,
 			updatedAt: row.updated_at,

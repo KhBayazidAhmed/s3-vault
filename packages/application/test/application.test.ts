@@ -202,6 +202,71 @@ describe("Application Use Cases: End-to-End Orchestration", () => {
 			],
 		});
 		expect(changed.get(renamedPath)?.status).toBe("changed");
+
+		await new DeleteUseCase(context).execute({ path: "tracked/tracked.txt" });
+		const afterRemoteDelete = statusUseCase.execute({
+			profileName: "test-profile",
+			bucket: "test-vault-bucket",
+			files: [
+				{
+					path: renamedPath,
+					name: "renamed.txt",
+					size: changedStats.size,
+					modifiedAtMs: changedStats.mtimeMs,
+					deviceId: changedStats.dev,
+					inode: changedStats.ino,
+				},
+			],
+		});
+		expect(afterRemoteDelete.get(renamedPath)?.status).toBe("new");
+	});
+
+	it("detects objects deleted or changed outside the CLI", async () => {
+		const localPath = join(tempDir, "externally-managed.txt");
+		writeFileSync(localPath, "original remote content");
+		await new PushUseCase(context).execute({
+			source: localPath,
+			target: "external/file.txt",
+		});
+
+		const stats = statSync(localPath);
+		const input = {
+			profileName: "test-profile",
+			bucket: "test-vault-bucket",
+			files: [
+				{
+					path: localPath,
+					name: "externally-managed.txt",
+					size: stats.size,
+					modifiedAtMs: stats.mtimeMs,
+					deviceId: stats.dev,
+					inode: stats.ino,
+				},
+			],
+		};
+		const { storage } = context.resolveRuntime();
+		const statusUseCase = new LocalUploadStatusUseCase(context);
+
+		await storage.deleteObject({
+			bucket: "test-vault-bucket",
+			key: "external/file.txt",
+		});
+		const missing = await statusUseCase.executeWithRemoteVerification(
+			input,
+			storage,
+		);
+		expect(missing.get(localPath)?.status).toBe("remote-missing");
+
+		await storage.putObject({
+			bucket: "test-vault-bucket",
+			key: "external/file.txt",
+			body: Buffer.from("replacement content from elsewhere"),
+		});
+		const changed = await statusUseCase.executeWithRemoteVerification(
+			input,
+			storage,
+		);
+		expect(changed.get(localPath)?.status).toBe("remote-changed");
 	});
 
 	it("supports push with --share and prevents duplicate re-uploading while still returning share URL", async () => {
@@ -316,9 +381,12 @@ describe("Application Use Cases: End-to-End Orchestration", () => {
 
 		const dir = join(tempDir, "to-delete");
 		mkdirSync(dir, { recursive: true });
-		writeFileSync(join(dir, "f1.txt"), "File 1");
-		writeFileSync(join(dir, "f2.txt"), "File 2");
-		writeFileSync(join(dir, "single.txt"), "Single File");
+		const firstPath = join(dir, "f1.txt");
+		const secondPath = join(dir, "f2.txt");
+		const singlePath = join(dir, "single.txt");
+		writeFileSync(firstPath, "File 1");
+		writeFileSync(secondPath, "File 2");
+		writeFileSync(singlePath, "Single File");
 
 		await pushUseCase.execute({ source: dir, target: "nested/folder" });
 
@@ -336,6 +404,13 @@ describe("Application Use Cases: End-to-End Orchestration", () => {
 		objects = await listUseCase.execute({ path: "nested/folder" });
 		expect(objects.length).toBe(2);
 		expect(objects.some((o) => o.key.endsWith("single.txt"))).toBe(false);
+		expect(
+			context.uploadedFileRepo.findByLocalPath(
+				"test-profile",
+				"test-vault-bucket",
+				singlePath,
+			),
+		).toBeNull();
 
 		// 2. Dry run recursive delete
 		const dryRunRes = await deleteUseCase.execute({
@@ -346,9 +421,16 @@ describe("Application Use Cases: End-to-End Orchestration", () => {
 		expect(dryRunRes.deletedCount).toBe(2);
 		expect(dryRunRes.dryRun).toBe(true);
 
-		// Objects still present after dry-run
+		// Objects and upload records are still present after dry-run
 		objects = await listUseCase.execute({ path: "nested/folder" });
 		expect(objects.length).toBe(2);
+		expect(
+			context.uploadedFileRepo.findByLocalPath(
+				"test-profile",
+				"test-vault-bucket",
+				firstPath,
+			),
+		).not.toBeNull();
 
 		// 3. Actual recursive delete
 		const recRes = await deleteUseCase.execute({
@@ -359,5 +441,14 @@ describe("Application Use Cases: End-to-End Orchestration", () => {
 
 		objects = await listUseCase.execute({ path: "nested/folder" });
 		expect(objects.length).toBe(0);
+		for (const localPath of [firstPath, secondPath]) {
+			expect(
+				context.uploadedFileRepo.findByLocalPath(
+					"test-profile",
+					"test-vault-bucket",
+					localPath,
+				),
+			).toBeNull();
+		}
 	});
 });

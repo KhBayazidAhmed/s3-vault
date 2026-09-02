@@ -1,6 +1,6 @@
 import { ServiceContext } from "@S3-vault-CLI/application";
 import { describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getDualPaneLayout } from "../src/components/dual-pane-view.js";
@@ -79,8 +79,61 @@ describe("TUI File Manager: Local & Remote Browser & State", () => {
 		expect(getDualPaneLayout(80, 10).visibleRows).toBe(1);
 	});
 
+	it("marks an upload as missing after it is deleted outside the TUI", async () => {
+		const tempDir = mkdtempSync(join(tmpdir(), "vault-external-delete-test-"));
+		const originalVaultHome = process.env.VAULT_HOME;
+		process.env.VAULT_HOME = tempDir;
+		const localDir = join(tempDir, "local");
+		const localPath = join(localDir, "tracked.txt");
+		const context = new ServiceContext({
+			customConfigPath: join(tempDir, "config.json"),
+			customDbPath: join(tempDir, "state.db"),
+		});
+		context.configManager.saveProfile({
+			name: "external-delete-test",
+			provider: "mock",
+			bucket: "external-delete-bucket",
+			endpoint: `file://${join(tempDir, "storage")}`,
+			isDefault: true,
+			addressingStyle: "path-style",
+		});
+		mkdirSync(localDir, { recursive: true });
+		writeFileSync(localPath, "tracked content");
+
+		const { PushUseCase } = await import("@S3-vault-CLI/application");
+		await new PushUseCase(context).execute({
+			source: localPath,
+			target: "tracked.txt",
+		});
+
+		const stateManager = new TuiStateManager(localDir);
+		await stateManager.refreshRemote(context);
+		expect(
+			stateManager.getState().localItems.find((item) => item.path === localPath)
+				?.uploadStatus,
+		).toBe("uploaded");
+
+		const { storage } = context.resolveRuntime();
+		await storage.deleteObject({
+			bucket: "external-delete-bucket",
+			key: "tracked.txt",
+		});
+		await stateManager.refreshRemote(context);
+		expect(
+			stateManager.getState().localItems.find((item) => item.path === localPath)
+				?.uploadStatus,
+		).toBe("remote-missing");
+
+		context.dbManager.close();
+		rmSync(tempDir, { recursive: true, force: true });
+		if (originalVaultHome) process.env.VAULT_HOME = originalVaultHome;
+		else delete process.env.VAULT_HOME;
+	});
+
 	it("RemoteBrowser: groups remote S3 objects into virtual folders", async () => {
 		const tempDir = mkdtempSync(join(tmpdir(), "vault-remote-tui-test-"));
+		const originalVaultHome = process.env.VAULT_HOME;
+		process.env.VAULT_HOME = tempDir;
 		const context = new ServiceContext({
 			customConfigPath: join(tempDir, "config.json"),
 			customDbPath: join(tempDir, "state.db"),
@@ -151,5 +204,7 @@ describe("TUI File Manager: Local & Remote Browser & State", () => {
 
 		context.dbManager.close();
 		rmSync(tempDir, { recursive: true, force: true });
+		if (originalVaultHome) process.env.VAULT_HOME = originalVaultHome;
+		else delete process.env.VAULT_HOME;
 	});
 });
