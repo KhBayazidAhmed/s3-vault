@@ -1,13 +1,19 @@
+import type { ServiceContext } from "@S3-vault-CLI/application";
+import { createInitialTuiState } from "./tui-initial-state.js";
+import { TuiStateData } from "./tui-state-data.js";
 import {
-	LocalUploadStatusUseCase,
-	type ServiceContext,
-} from "@S3-vault-CLI/application";
-import type { StorageBackend } from "@S3-vault-CLI/storage";
-import { LocalBrowser } from "./local-browser.js";
-import { RemoteBrowser } from "./remote-browser.js";
+	clearSearchForPane,
+	getItemsForPane,
+	getSelectedItem,
+	jumpToBottom,
+	jumpToTop,
+	moveCursor,
+	resetActiveCursor,
+} from "./tui-state-navigation.js";
 import type {
 	FileItem,
 	ModalType,
+	PaneType,
 	TransferProgressState,
 	TuiState,
 } from "./types.js";
@@ -15,46 +21,11 @@ import type {
 export class TuiStateManager {
 	private state: TuiState;
 	private onChangeListeners: (() => void)[] = [];
-	private context?: ServiceContext;
+	private data: TuiStateData;
 
 	constructor(initialPath: string = process.cwd()) {
-		this.state = {
-			activePane: "local",
-			searchQuery: "",
-			searchPane: "local",
-			searchActive: false,
-			localPath: initialPath,
-			localItems: [],
-			localCursor: 0,
-			localScrollOffset: 0,
-
-			remotePrefix: "",
-			remoteItems: [],
-			remoteCursor: 0,
-			remoteScrollOffset: 0,
-
-			statusOk: false,
-			latencyMs: 0,
-			availableProfiles: [],
-
-			activeModal: "none",
-			modalCursor: 0,
-			modalInput: "",
-			modalStep: 0,
-			modalData: {},
-
-			statusMessage:
-				"Welcome to S3 Vault! Use Tab to switch panes, Arrow keys to navigate.",
-			statusType: "info",
-			progress: {
-				active: false,
-				label: "",
-				transferredBytes: 0,
-				totalBytes: 0,
-				percentage: 0,
-			},
-			isLoading: false,
-		};
+		this.state = createInitialTuiState(initialPath);
+		this.data = new TuiStateData(this.state, () => this.notify());
 	}
 
 	getState(): Readonly<TuiState> {
@@ -65,15 +36,13 @@ export class TuiStateManager {
 		this.onChangeListeners.push(listener);
 		return () => {
 			this.onChangeListeners = this.onChangeListeners.filter(
-				(l) => l !== listener,
+				(candidate) => candidate !== listener,
 			);
 		};
 	}
 
 	private notify() {
-		for (const listener of this.onChangeListeners) {
-			listener();
-		}
+		for (const listener of this.onChangeListeners) listener();
 	}
 
 	togglePane() {
@@ -83,38 +52,29 @@ export class TuiStateManager {
 		this.notify();
 	}
 
-	getItemsForPane(
-		pane: "local" | "remote" = this.state.activePane,
-	): FileItem[] {
-		const items =
-			pane === "local" ? this.state.localItems : this.state.remoteItems;
-		if (this.state.searchPane !== pane || !this.state.searchQuery) return items;
-
-		const query = this.state.searchQuery.toLocaleLowerCase();
-		return items.filter((item) =>
-			item.name.toLocaleLowerCase().includes(query),
-		);
+	getItemsForPane(pane: PaneType = this.state.activePane): FileItem[] {
+		return getItemsForPane(this.state, pane);
 	}
 
 	startSearch(initialQuery = "") {
 		this.state.searchPane = this.state.activePane;
 		this.state.searchQuery = initialQuery;
 		this.state.searchActive = true;
-		this.resetActiveCursor();
+		resetActiveCursor(this.state);
 		this.notify();
 	}
 
 	appendSearch(text: string) {
 		if (!this.state.searchActive || !text) return;
 		this.state.searchQuery += text;
-		this.resetActiveCursor();
+		resetActiveCursor(this.state);
 		this.notify();
 	}
 
 	deleteSearchCharacter() {
 		if (!this.state.searchActive) return;
 		this.state.searchQuery = this.state.searchQuery.slice(0, -1);
-		this.resetActiveCursor();
+		resetActiveCursor(this.state);
 		this.notify();
 	}
 
@@ -127,176 +87,36 @@ export class TuiStateManager {
 	clearSearch() {
 		this.state.searchQuery = "";
 		this.state.searchActive = false;
-		this.resetActiveCursor();
+		resetActiveCursor(this.state);
 		this.notify();
-	}
-
-	private resetActiveCursor() {
-		if (this.state.activePane === "local") {
-			this.state.localCursor = 0;
-			this.state.localScrollOffset = 0;
-		} else {
-			this.state.remoteCursor = 0;
-			this.state.remoteScrollOffset = 0;
-		}
-	}
-
-	private clearSearchForPane(pane: "local" | "remote") {
-		if (this.state.searchPane === pane) {
-			this.state.searchQuery = "";
-			this.state.searchActive = false;
-		}
 	}
 
 	moveCursor(delta: number, maxVisibleRows = 12) {
-		if (this.state.activeModal !== "none") {
-			// Modal navigation
-			const max = (this.state.modalData?.optionsCount || 1) - 1;
-			this.state.modalCursor = Math.max(
-				0,
-				Math.min(max, this.state.modalCursor + delta),
-			);
-			this.notify();
-			return;
-		}
-
-		if (this.state.activePane === "local") {
-			const total = this.getItemsForPane("local").length;
-			if (total === 0) return;
-			const next = Math.max(
-				0,
-				Math.min(total - 1, this.state.localCursor + delta),
-			);
-			this.state.localCursor = next;
-
-			// Adjust scroll window
-			if (next < this.state.localScrollOffset) {
-				this.state.localScrollOffset = next;
-			} else if (next >= this.state.localScrollOffset + maxVisibleRows) {
-				this.state.localScrollOffset = next - maxVisibleRows + 1;
-			}
-		} else {
-			const total = this.getItemsForPane("remote").length;
-			if (total === 0) return;
-			const next = Math.max(
-				0,
-				Math.min(total - 1, this.state.remoteCursor + delta),
-			);
-			this.state.remoteCursor = next;
-
-			// Adjust scroll window
-			if (next < this.state.remoteScrollOffset) {
-				this.state.remoteScrollOffset = next;
-			} else if (next >= this.state.remoteScrollOffset + maxVisibleRows) {
-				this.state.remoteScrollOffset = next - maxVisibleRows + 1;
-			}
-		}
-		this.notify();
+		if (moveCursor(this.state, delta, maxVisibleRows)) this.notify();
 	}
 
 	jumpToTop() {
-		if (this.state.activePane === "local") {
-			this.state.localCursor = 0;
-			this.state.localScrollOffset = 0;
-		} else {
-			this.state.remoteCursor = 0;
-			this.state.remoteScrollOffset = 0;
-		}
+		jumpToTop(this.state);
 		this.notify();
 	}
 
 	jumpToBottom(maxVisibleRows = 14) {
-		if (this.state.activePane === "local") {
-			const total = this.getItemsForPane("local").length;
-			if (total > 0) {
-				this.state.localCursor = total - 1;
-				this.state.localScrollOffset = Math.max(0, total - maxVisibleRows);
-			}
-		} else {
-			const total = this.getItemsForPane("remote").length;
-			if (total > 0) {
-				this.state.remoteCursor = total - 1;
-				this.state.remoteScrollOffset = Math.max(0, total - maxVisibleRows);
-			}
-		}
+		jumpToBottom(this.state, maxVisibleRows);
 		this.notify();
 	}
 
 	getSelectedItem(
-		pane: "local" | "remote" = this.state.activePane,
+		pane: PaneType = this.state.activePane,
 	): FileItem | undefined {
-		const items = this.getItemsForPane(pane);
-		const cursor =
-			pane === "local" ? this.state.localCursor : this.state.remoteCursor;
-		return items[cursor];
+		return getSelectedItem(this.state, pane);
 	}
 
 	refreshLocal() {
-		this.state.localItems = LocalBrowser.readDirectory(this.state.localPath);
-
-		if (
-			this.context &&
-			this.state.activeProfileName &&
-			this.state.activeBucket
-		) {
-			const statuses = new LocalUploadStatusUseCase(this.context).execute({
-				profileName: this.state.activeProfileName,
-				bucket: this.state.activeBucket,
-				files: this.state.localItems,
-			});
-			this.applyLocalUploadStatuses(statuses);
-		}
-		this.normalizeLocalCursor();
-		this.notify();
-	}
-
-	private async refreshLocalWithRemoteVerification(storage: StorageBackend) {
-		this.state.localItems = LocalBrowser.readDirectory(this.state.localPath);
-		if (
-			this.context &&
-			this.state.activeProfileName &&
-			this.state.activeBucket
-		) {
-			const statuses = await new LocalUploadStatusUseCase(
-				this.context,
-			).executeWithRemoteVerification(
-				{
-					profileName: this.state.activeProfileName,
-					bucket: this.state.activeBucket,
-					files: this.state.localItems,
-				},
-				storage,
-			);
-			this.applyLocalUploadStatuses(statuses);
-		}
-		this.normalizeLocalCursor();
-		this.notify();
-	}
-
-	private applyLocalUploadStatuses(
-		statuses: ReturnType<LocalUploadStatusUseCase["execute"]>,
-	) {
-		this.state.localItems = this.state.localItems.map((item) => {
-			const result = statuses.get(item.path);
-			return result
-				? {
-						...item,
-						uploadStatus: result.status,
-						uploadedDestination: result.destination,
-					}
-				: item;
-		});
-	}
-
-	private normalizeLocalCursor() {
-		const total = this.getItemsForPane("local").length;
-		if (this.state.localCursor >= total) {
-			this.state.localCursor = Math.max(0, total - 1);
-		}
+		this.data.refreshLocal();
 	}
 
 	setLocalPath(newPath: string) {
-		this.clearSearchForPane("local");
+		clearSearchForPane(this.state, "local");
 		this.state.localPath = newPath;
 		this.state.localCursor = 0;
 		this.state.localScrollOffset = 0;
@@ -305,17 +125,17 @@ export class TuiStateManager {
 
 	navigateUp(context?: ServiceContext) {
 		if (this.state.activePane === "local") {
-			const parentItem = this.state.localItems.find((i) => i.name === "..");
-			if (parentItem) {
-				this.setLocalPath(parentItem.path);
-				this.setStatus(`Browsing local: ${parentItem.path}`, "info");
+			const parent = this.state.localItems.find((item) => item.name === "..");
+			if (parent) {
+				this.setLocalPath(parent.path);
+				this.setStatus(`Browsing local: ${parent.path}`, "info");
 			}
 		} else if (context) {
-			const parentItem = this.state.remoteItems.find((i) => i.name === "..");
-			if (parentItem) {
-				this.setRemotePrefix(parentItem.path, context);
+			const parent = this.state.remoteItems.find((item) => item.name === "..");
+			if (parent) {
+				this.setRemotePrefix(parent.path, context);
 				this.setStatus(
-					`Browsing remote prefix: ${parentItem.path || "(root)"}`,
+					`Browsing remote prefix: ${parent.path || "(root)"}`,
 					"info",
 				);
 			}
@@ -323,61 +143,11 @@ export class TuiStateManager {
 	}
 
 	async refreshRemote(context: ServiceContext) {
-		this.context = context;
-		const profiles = context.configManager.listProfiles();
-		this.state.availableProfiles = profiles.map((p) => ({
-			name: p.name,
-			provider: p.profile.provider,
-			bucket: p.profile.bucket,
-			region: p.profile.region,
-			isActive: p.isActive,
-			isDefault: p.isDefault,
-		}));
-
-		if (profiles.length === 0) {
-			this.state.remoteItems = [];
-			this.state.activeProfileName = undefined;
-			this.state.activeBucket = undefined;
-			this.state.statusOk = false;
-			this.refreshLocal();
-			return;
-		}
-
-		try {
-			const { runtimeConfig, storage } =
-				await context.resolveStorageWithCredentials();
-			this.state.activeProfileName = runtimeConfig.profileName;
-			this.state.activeBucket = runtimeConfig.bucket;
-			this.state.provider = runtimeConfig.provider;
-
-			// Check health
-			const health = await storage.checkHealth(runtimeConfig.bucket);
-			this.state.statusOk = health.ok;
-			this.state.latencyMs = health.latencyMs;
-
-			// Load items
-			const { ListObjectsUseCase } = await import("@S3-vault-CLI/application");
-			const listUseCase = new ListObjectsUseCase(context);
-			this.state.remoteItems = await RemoteBrowser.listPrefix(
-				listUseCase,
-				this.state.remotePrefix,
-			);
-
-			const remoteTotal = this.getItemsForPane("remote").length;
-			if (this.state.remoteCursor >= remoteTotal) {
-				this.state.remoteCursor = Math.max(0, remoteTotal - 1);
-			}
-			await this.refreshLocalWithRemoteVerification(storage);
-			return;
-		} catch {
-			this.state.statusOk = false;
-			this.state.remoteItems = [];
-		}
-		this.refreshLocal();
+		await this.data.refreshRemote(context);
 	}
 
 	setRemotePrefix(prefix: string, context: ServiceContext) {
-		this.clearSearchForPane("remote");
+		clearSearchForPane(this.state, "remote");
 		this.state.remotePrefix = prefix;
 		this.state.remoteCursor = 0;
 		this.state.remoteScrollOffset = 0;
@@ -394,24 +164,19 @@ export class TuiStateManager {
 	}
 
 	setProgress(progress: Partial<TransferProgressState>) {
-		const next = {
-			...this.state.progress,
-			...progress,
-		};
+		const next = { ...this.state.progress, ...progress };
 		const transferredBytes = Math.max(0, next.transferredBytes);
 		const totalBytes = Math.max(0, next.totalBytes);
-		const percentage =
-			totalBytes > 0
-				? Math.round(
-						(Math.min(transferredBytes, totalBytes) / totalBytes) * 100,
-					)
-				: 0;
-
 		this.state.progress = {
 			...next,
 			transferredBytes,
 			totalBytes,
-			percentage,
+			percentage:
+				totalBytes > 0
+					? Math.round(
+							(Math.min(transferredBytes, totalBytes) / totalBytes) * 100,
+						)
+					: 0,
 		};
 		this.notify();
 	}
