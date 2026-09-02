@@ -2,7 +2,6 @@ import {
 	ChecksumUtils,
 	NotFoundError,
 	type ObjectMetadata,
-	type UserMetadata,
 } from "@S3-vault-CLI/domain";
 import {
 	type AbortMultipartInput,
@@ -23,36 +22,14 @@ import {
 	type UploadPartInput,
 } from "@S3-vault-CLI/storage";
 import { Readable } from "node:stream";
+import {
+	FailureInjector,
+	type InjectedFailure,
+	InMemoryObjectStore,
+	MultipartSessionStore,
+} from "./in-memory-state.js";
 
-interface StoredObject {
-	data: Buffer;
-	metadata: ObjectMetadata;
-}
-
-interface InFlightMultipart {
-	bucket: string;
-	key: string;
-	contentType?: string;
-	userMetadata?: UserMetadata;
-	storageClass?: string;
-	parts: Map<
-		number,
-		{ data: Buffer; etag: string; checksumSha256?: string; size: number }
-	>;
-}
-
-export interface InjectedFailure {
-	operation:
-		| "putObject"
-		| "getObject"
-		| "uploadPart"
-		| "listObjects"
-		| "headObject";
-	keyPattern?: RegExp;
-	partNumber?: number;
-	timesRemaining: number;
-	error: Error;
-}
+export type { InjectedFailure } from "./in-memory-state.js";
 
 export class InMemoryStorageBackend implements StorageBackend {
 	readonly name = "in-memory-mock";
@@ -64,149 +41,88 @@ export class InMemoryStorageBackend implements StorageBackend {
 		supportsByteRanges: true,
 	};
 
-	private objects: Map<string, StoredObject> = new Map();
-	private multipartSessions: Map<string, InFlightMultipart> = new Map();
-	private failureRules: InjectedFailure[] = [];
-
-	private makeObjectKey(bucket: string, key: string): string {
-		return `${bucket}:::${key}`;
-	}
+	private readonly objects = new InMemoryObjectStore();
+	private readonly multipartSessions = new MultipartSessionStore();
+	private readonly failures = new FailureInjector();
 
 	injectFailure(rule: InjectedFailure): void {
-		this.failureRules.push(rule);
+		this.failures.inject(rule);
 	}
 
 	clearFailures(): void {
-		this.failureRules = [];
-	}
-
-	private checkFailure(
-		operation: InjectedFailure["operation"],
-		key?: string,
-		partNumber?: number,
-	): void {
-		for (let i = 0; i < this.failureRules.length; i++) {
-			const rule = this.failureRules[i];
-			if (!rule || rule.timesRemaining <= 0) continue;
-
-			if (rule.operation === operation) {
-				if (rule.keyPattern && key && !rule.keyPattern.test(key)) {
-					continue;
-				}
-				if (
-					rule.partNumber !== undefined &&
-					partNumber !== undefined &&
-					rule.partNumber !== partNumber
-				) {
-					continue;
-				}
-
-				rule.timesRemaining--;
-				throw rule.error;
-			}
-		}
+		this.failures.clear();
 	}
 
 	async headObject(input: HeadObjectInput): Promise<ObjectMetadata | null> {
-		this.checkFailure("headObject", input.key);
-		const key = this.makeObjectKey(input.bucket, input.key);
-		const item = this.objects.get(key);
+		this.failures.check("headObject", input.key);
+		const item = this.objects.get(input.bucket, input.key);
 		return item ? { ...item.metadata } : null;
 	}
 
 	async getObject(input: GetObjectInput): Promise<Readable> {
-		this.checkFailure("getObject", input.key);
-		const key = this.makeObjectKey(input.bucket, input.key);
-		const item = this.objects.get(key);
+		this.failures.check("getObject", input.key);
+		const item = this.objects.get(input.bucket, input.key);
 		if (!item) {
 			throw new NotFoundError(
 				`Object '${input.key}' not found in bucket '${input.bucket}'.`,
-				{
-					bucket: input.bucket,
-					key: input.key,
-				},
+				{ bucket: input.bucket, key: input.key },
 			);
 		}
 
 		let buffer = item.data;
-		if (input.range) {
-			const match = input.range.match(/bytes=(\d+)-(\d*)/);
-			if (match && match[1]) {
-				const start = Number.parseInt(match[1], 10);
-				const end = match[2]
-					? Number.parseInt(match[2], 10) + 1
-					: buffer.length;
-				buffer = buffer.subarray(start, end);
-			}
+		const match = input.range?.match(/bytes=(\d+)-(\d*)/);
+		if (match?.[1]) {
+			const start = Number.parseInt(match[1], 10);
+			const end = match[2] ? Number.parseInt(match[2], 10) + 1 : buffer.length;
+			buffer = buffer.subarray(start, end);
 		}
-
 		return Readable.from([buffer]);
 	}
 
 	async putObject(input: PutObjectInput): Promise<PutObjectResult> {
-		this.checkFailure("putObject", input.key);
-		const buf = await StreamUtils.toBuffer(input.body);
-		const md5 = ChecksumUtils.md5(buf);
-		const sha256 = input.checksumSha256 ?? ChecksumUtils.sha256(buf);
+		this.failures.check("putObject", input.key);
+		const buffer = await StreamUtils.toBuffer(input.body);
+		const md5 = ChecksumUtils.md5(buffer);
+		const checksumSha256 = input.checksumSha256 ?? ChecksumUtils.sha256(buffer);
 		const etag = `"${md5}"`;
-
 		const metadata: ObjectMetadata = {
 			key: input.key,
-			size: buf.length,
+			size: buffer.length,
 			lastModified: new Date(),
 			etag,
 			contentType: input.contentType ?? "application/octet-stream",
-			checksumSha256: sha256,
+			checksumSha256,
 			storageClass: input.storageClass ?? "STANDARD",
 			userMetadata: input.userMetadata,
 		};
-
-		const objectKey = this.makeObjectKey(input.bucket, input.key);
-		this.objects.set(objectKey, { data: buf, metadata });
-
-		return {
-			etag,
-			checksumSha256: sha256,
-		};
+		this.objects.set(input.bucket, input.key, { data: buffer, metadata });
+		return { etag, checksumSha256 };
 	}
 
 	async *listObjects(input: ListObjectsInput): AsyncIterable<ObjectMetadata> {
-		this.checkFailure("listObjects");
-		const prefix = input.prefix ?? "";
-		const bucketPrefix = `${input.bucket}:::`;
-
-		for (const [key, item] of this.objects.entries()) {
-			if (!key.startsWith(bucketPrefix)) continue;
-			const objectKey = key.slice(bucketPrefix.length);
-
-			if (objectKey.startsWith(prefix)) {
-				yield { ...item.metadata };
-			}
-		}
+		this.failures.check("listObjects");
+		yield* this.objects.list(input.bucket, input.prefix ?? "");
 	}
 
 	async deleteObject(input: DeleteObjectInput): Promise<void> {
-		const key = this.makeObjectKey(input.bucket, input.key);
-		this.objects.delete(key);
+		this.objects.delete(input.bucket, input.key);
 	}
 
 	async createMultipartUpload(
 		input: MultipartInput,
 	): Promise<{ uploadId: string }> {
-		const uploadId = `mock-upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-		this.multipartSessions.set(uploadId, {
+		const uploadId = this.multipartSessions.create({
 			bucket: input.bucket,
 			key: input.key,
 			contentType: input.contentType,
 			userMetadata: input.userMetadata,
 			storageClass: input.storageClass,
-			parts: new Map(),
 		});
 		return { uploadId };
 	}
 
 	async uploadPart(input: UploadPartInput): Promise<UploadedPart> {
-		this.checkFailure("uploadPart", input.key, input.partNumber);
+		this.failures.check("uploadPart", input.key, input.partNumber);
 		const session = this.multipartSessions.get(input.uploadId);
 		if (!session) {
 			throw new NotFoundError(
@@ -214,23 +130,21 @@ export class InMemoryStorageBackend implements StorageBackend {
 			);
 		}
 
-		const buf = await StreamUtils.toBuffer(input.body);
-		const md5 = ChecksumUtils.md5(buf);
-		const etag = `"${md5}"`;
-		const sha256 = input.checksumSha256 ?? ChecksumUtils.sha256(buf);
-
-		session.parts.set(input.partNumber, {
-			data: buf,
+		const data = await StreamUtils.toBuffer(input.body);
+		const etag = `"${ChecksumUtils.md5(data)}"`;
+		const checksumSha256 = input.checksumSha256 ?? ChecksumUtils.sha256(data);
+		const part = {
+			data,
 			etag,
-			checksumSha256: sha256,
-			size: buf.length,
-		});
-
+			checksumSha256,
+			size: data.length,
+		};
+		session.parts.set(input.partNumber, part);
 		return {
 			partNumber: input.partNumber,
 			etag,
-			checksumSha256: sha256,
-			size: buf.length,
+			checksumSha256,
+			size: data.length,
 		};
 	}
 
@@ -244,13 +158,11 @@ export class InMemoryStorageBackend implements StorageBackend {
 			);
 		}
 
-		// Sort parts by part number
-		const sortedParts = [...input.parts].sort(
-			(a, b) => a.partNumber - b.partNumber,
-		);
 		const partBuffers: Buffer[] = [];
 		const partMd5s: string[] = [];
-
+		const sortedParts = [...input.parts].sort(
+			(left, right) => left.partNumber - right.partNumber,
+		);
 		for (const part of sortedParts) {
 			const storedPart = session.parts.get(part.partNumber);
 			if (!storedPart) {
@@ -262,29 +174,22 @@ export class InMemoryStorageBackend implements StorageBackend {
 			partMd5s.push(storedPart.etag.replace(/["']/g, ""));
 		}
 
-		const combinedBuffer = Buffer.concat(partBuffers);
-		const multiEtag = `"${ChecksumUtils.computeMultipartETag(partMd5s)}"`;
-		const totalSha256 = ChecksumUtils.sha256(combinedBuffer);
-
+		const data = Buffer.concat(partBuffers);
+		const etag = `"${ChecksumUtils.computeMultipartETag(partMd5s)}"`;
+		const checksumSha256 = ChecksumUtils.sha256(data);
 		const metadata: ObjectMetadata = {
 			key: input.key,
-			size: combinedBuffer.length,
+			size: data.length,
 			lastModified: new Date(),
-			etag: multiEtag,
+			etag,
 			contentType: session.contentType ?? "application/octet-stream",
-			checksumSha256: totalSha256,
+			checksumSha256,
 			storageClass: session.storageClass ?? "STANDARD",
 			userMetadata: session.userMetadata,
 		};
-
-		const objectKey = this.makeObjectKey(input.bucket, input.key);
-		this.objects.set(objectKey, { data: combinedBuffer, metadata });
+		this.objects.set(input.bucket, input.key, { data, metadata });
 		this.multipartSessions.delete(input.uploadId);
-
-		return {
-			etag: multiEtag,
-			checksumSha256: totalSha256,
-		};
+		return { etag, checksumSha256 };
 	}
 
 	async abortMultipartUpload(input: AbortMultipartInput): Promise<void> {
@@ -298,10 +203,6 @@ export class InMemoryStorageBackend implements StorageBackend {
 	}
 
 	async checkHealth(_bucket: string): Promise<HealthCheckResult> {
-		return {
-			ok: true,
-			latencyMs: 1,
-			bucketExists: true,
-		};
+		return { ok: true, latencyMs: 1, bucketExists: true };
 	}
 }

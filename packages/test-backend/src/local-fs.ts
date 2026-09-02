@@ -21,18 +21,8 @@ import {
 	type UploadedPart,
 	type UploadPartInput,
 } from "@S3-vault-CLI/storage";
-import {
-	createReadStream,
-	existsSync,
-	mkdirSync,
-	readdirSync,
-	readFileSync,
-	statSync,
-	unlinkSync,
-	writeFileSync,
-} from "node:fs";
-import { dirname, join, relative } from "node:path";
 import type { Readable } from "node:stream";
+import { LocalFileStore } from "./local-fs-store.js";
 
 export class LocalFileSystemStorageBackend implements StorageBackend {
 	readonly name = "local-filesystem-mock";
@@ -44,234 +34,122 @@ export class LocalFileSystemStorageBackend implements StorageBackend {
 		supportsByteRanges: true,
 	};
 
-	private rootDir: string;
-	private multipartTempDir: string;
+	private readonly store: LocalFileStore;
 
 	constructor(rootDir: string) {
-		this.rootDir = rootDir;
-		this.multipartTempDir = join(rootDir, ".vault-multipart-temp");
-		if (!existsSync(this.rootDir)) {
-			mkdirSync(this.rootDir, { recursive: true });
-		}
-	}
-
-	private getObjectPath(bucket: string, key: string): string {
-		return join(this.rootDir, bucket, key);
-	}
-
-	private getMetaPath(bucket: string, key: string): string {
-		return join(this.rootDir, bucket, `${key}.meta.json`);
+		this.store = new LocalFileStore(rootDir);
 	}
 
 	async headObject(input: HeadObjectInput): Promise<ObjectMetadata | null> {
-		const filePath = this.getObjectPath(input.bucket, input.key);
-		const metaPath = this.getMetaPath(input.bucket, input.key);
-
-		if (!existsSync(filePath)) return null;
-
-		const stats = statSync(filePath);
-		let meta: Partial<ObjectMetadata> = {};
-		if (existsSync(metaPath)) {
-			try {
-				meta = JSON.parse(readFileSync(metaPath, "utf-8"));
-			} catch {}
-		}
-
-		return {
-			key: input.key,
-			size: stats.size,
-			lastModified: stats.mtime,
-			etag: meta.etag || `"${ChecksumUtils.md5(readFileSync(filePath))}"`,
-			contentType: meta.contentType || "application/octet-stream",
-			checksumSha256: meta.checksumSha256,
-			storageClass: meta.storageClass || "STANDARD",
-			userMetadata: meta.userMetadata,
-		};
+		return this.store.head(input.bucket, input.key);
 	}
 
 	async getObject(input: GetObjectInput): Promise<Readable> {
-		const filePath = this.getObjectPath(input.bucket, input.key);
-		if (!existsSync(filePath)) {
-			throw new NotFoundError(`Object '${input.key}' not found.`);
-		}
-
-		if (input.range) {
-			const match = input.range.match(/bytes=(\d+)-(\d*)/);
-			if (match && match[1]) {
-				const start = Number.parseInt(match[1], 10);
-				const end = match[2] ? Number.parseInt(match[2], 10) : undefined;
-				return createReadStream(filePath, { start, end });
-			}
-		}
-
-		return createReadStream(filePath);
+		const stream = this.store.open(input.bucket, input.key, input.range);
+		if (!stream) throw new NotFoundError(`Object '${input.key}' not found.`);
+		return stream;
 	}
 
 	async putObject(input: PutObjectInput): Promise<PutObjectResult> {
-		const filePath = this.getObjectPath(input.bucket, input.key);
-		const metaPath = this.getMetaPath(input.bucket, input.key);
-
-		mkdirSync(dirname(filePath), { recursive: true });
-
-		const buf = await StreamUtils.toBuffer(input.body);
-		writeFileSync(filePath, buf);
-
-		const md5 = ChecksumUtils.md5(buf);
-		const sha256 = input.checksumSha256 ?? ChecksumUtils.sha256(buf);
+		const buffer = await StreamUtils.toBuffer(input.body);
+		const md5 = ChecksumUtils.md5(buffer);
+		const checksumSha256 = input.checksumSha256 ?? ChecksumUtils.sha256(buffer);
 		const etag = `"${md5}"`;
-
-		const meta: ObjectMetadata = {
+		const metadata: ObjectMetadata = {
 			key: input.key,
-			size: buf.length,
+			size: buffer.length,
 			lastModified: new Date(),
 			etag,
 			contentType: input.contentType ?? "application/octet-stream",
-			checksumSha256: sha256,
+			checksumSha256,
 			storageClass: input.storageClass ?? "STANDARD",
 			userMetadata: input.userMetadata,
 		};
-
-		writeFileSync(metaPath, JSON.stringify(meta, null, 2));
-
-		return { etag, checksumSha256: sha256 };
+		this.store.write(input.bucket, input.key, buffer, metadata);
+		return { etag, checksumSha256 };
 	}
 
 	async *listObjects(input: ListObjectsInput): AsyncIterable<ObjectMetadata> {
-		const bucketDir = join(this.rootDir, input.bucket);
-		if (!existsSync(bucketDir)) return;
-
 		const prefix = input.prefix ?? "";
-
-		const walk = function* (dir: string): Generator<string> {
-			const entries = readdirSync(dir, { withFileTypes: true });
-			for (const entry of entries) {
-				const full = join(dir, entry.name);
-				if (entry.isDirectory()) {
-					if (!entry.name.startsWith(".")) {
-						yield* walk(full);
-					}
-				} else if (!entry.name.endsWith(".meta.json")) {
-					yield full;
-				}
-			}
-		};
-
-		for (const fullPath of walk(bucketDir)) {
-			const relKey = relative(bucketDir, fullPath).replace(/\\/g, "/");
-			if (relKey.startsWith(prefix)) {
-				const head = await this.headObject({
-					bucket: input.bucket,
-					key: relKey,
-				});
-				if (head) yield head;
-			}
+		for (const key of this.store.listKeys(input.bucket)) {
+			if (!key.startsWith(prefix)) continue;
+			const metadata = this.store.head(input.bucket, key);
+			if (metadata) yield metadata;
 		}
 	}
 
 	async deleteObject(input: DeleteObjectInput): Promise<void> {
-		const filePath = this.getObjectPath(input.bucket, input.key);
-		const metaPath = this.getMetaPath(input.bucket, input.key);
-
-		if (existsSync(filePath)) unlinkSync(filePath);
-		if (existsSync(metaPath)) unlinkSync(metaPath);
+		this.store.delete(input.bucket, input.key);
 	}
 
 	async createMultipartUpload(
 		input: MultipartInput,
 	): Promise<{ uploadId: string }> {
-		const uploadId = `upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-		const sessionDir = join(this.multipartTempDir, uploadId);
-		mkdirSync(sessionDir, { recursive: true });
-
-		writeFileSync(join(sessionDir, "meta.json"), JSON.stringify(input));
-
-		return { uploadId };
+		return { uploadId: this.store.createSession(input) };
 	}
 
 	async uploadPart(input: UploadPartInput): Promise<UploadedPart> {
-		const sessionDir = join(this.multipartTempDir, input.uploadId);
-		if (!existsSync(sessionDir)) {
+		if (!this.store.hasSession(input.uploadId)) {
 			throw new NotFoundError(
 				`Multipart upload session '${input.uploadId}' not found.`,
 			);
 		}
-
-		const partPath = join(sessionDir, `part-${input.partNumber}`);
-		const buf = await StreamUtils.toBuffer(input.body);
-		writeFileSync(partPath, buf);
-
-		const md5 = ChecksumUtils.md5(buf);
-		const etag = `"${md5}"`;
-		const sha256 = input.checksumSha256 ?? ChecksumUtils.sha256(buf);
-
+		const data = await StreamUtils.toBuffer(input.body);
+		this.store.writePart(input.uploadId, input.partNumber, data);
+		const etag = `"${ChecksumUtils.md5(data)}"`;
+		const checksumSha256 = input.checksumSha256 ?? ChecksumUtils.sha256(data);
 		return {
 			partNumber: input.partNumber,
 			etag,
-			checksumSha256: sha256,
-			size: buf.length,
+			checksumSha256,
+			size: data.length,
 		};
 	}
 
 	async completeMultipartUpload(
 		input: CompleteMultipartInput,
 	): Promise<PutObjectResult> {
-		const sessionDir = join(this.multipartTempDir, input.uploadId);
-		if (!existsSync(sessionDir)) {
+		if (!this.store.hasSession(input.uploadId)) {
 			throw new NotFoundError(
 				`Multipart upload session '${input.uploadId}' not found.`,
 			);
 		}
 
-		const sortedParts = [...input.parts].sort(
-			(a, b) => a.partNumber - b.partNumber,
-		);
 		const partBuffers: Buffer[] = [];
 		const partMd5s: string[] = [];
-
+		const sortedParts = [...input.parts].sort(
+			(left, right) => left.partNumber - right.partNumber,
+		);
 		for (const part of sortedParts) {
-			const partPath = join(sessionDir, `part-${part.partNumber}`);
-			if (!existsSync(partPath)) {
+			const data = this.store.readPart(input.uploadId, part.partNumber);
+			if (!data) {
 				throw new NotFoundError(`Part ${part.partNumber} not found.`);
 			}
-			const pBuf = readFileSync(partPath);
-			partBuffers.push(pBuf);
+			partBuffers.push(data);
 			partMd5s.push(part.etag.replace(/["']/g, ""));
 		}
 
 		const combined = Buffer.concat(partBuffers);
-		const multiEtag = `"${ChecksumUtils.computeMultipartETag(partMd5s)}"`;
-		const sha256 = ChecksumUtils.sha256(combined);
-
+		const etag = `"${ChecksumUtils.computeMultipartETag(partMd5s)}"`;
+		const checksumSha256 = ChecksumUtils.sha256(combined);
 		await this.putObject({
 			bucket: input.bucket,
 			key: input.key,
 			body: combined,
-			checksumSha256: sha256,
+			checksumSha256,
 		});
-
-		return { etag: multiEtag, checksumSha256: sha256 };
+		return { etag, checksumSha256 };
 	}
 
 	async abortMultipartUpload(input: AbortMultipartInput): Promise<void> {
-		const sessionDir = join(this.multipartTempDir, input.uploadId);
-		if (existsSync(sessionDir)) {
-			// Clean up session directory
-			const files = readdirSync(sessionDir);
-			for (const file of files) {
-				unlinkSync(join(sessionDir, file));
-			}
-		}
+		this.store.abortSession(input.uploadId);
 	}
 
 	async createPresignedUrl(input: PresignInput): Promise<string> {
-		return `file://${this.getObjectPath(input.bucket, input.key)}`;
+		return this.store.objectUrl(input.bucket, input.key);
 	}
 
 	async checkHealth(): Promise<HealthCheckResult> {
-		return {
-			ok: true,
-			latencyMs: 1,
-			bucketExists: true,
-		};
+		return { ok: true, latencyMs: 1, bucketExists: true };
 	}
 }
