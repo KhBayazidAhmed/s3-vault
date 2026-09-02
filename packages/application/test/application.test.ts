@@ -3,7 +3,9 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
+	renameSync,
 	rmSync,
+	statSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,6 +15,7 @@ import { DeleteUseCase } from "../src/use-cases/delete.js";
 import { DumpUseCase } from "../src/use-cases/dump.js";
 import { InitProfileUseCase } from "../src/use-cases/init-profile.js";
 import { ListObjectsUseCase } from "../src/use-cases/list-objects.js";
+import { LocalUploadStatusUseCase } from "../src/use-cases/local-upload-status.js";
 import { ObjectInfoUseCase } from "../src/use-cases/object-info.js";
 import { PullUseCase } from "../src/use-cases/pull.js";
 import { PushUseCase } from "../src/use-cases/push.js";
@@ -133,6 +136,72 @@ describe("Application Use Cases: End-to-End Orchestration", () => {
 			"utf-8",
 		);
 		expect(downloadedContent).toBe("Vault Content for Testing E2E");
+	});
+
+	it("tracks uploaded, renamed, and changed local files", async () => {
+		const originalPath = join(tempDir, "tracked.txt");
+		writeFileSync(originalPath, "tracked content");
+
+		const pushResult = await new PushUseCase(context).execute({
+			source: originalPath,
+			target: "tracked/tracked.txt",
+		});
+		expect(pushResult.success).toBe(true);
+
+		const statusUseCase = new LocalUploadStatusUseCase(context);
+		const originalStats = statSync(originalPath);
+		const uploaded = statusUseCase.execute({
+			profileName: "test-profile",
+			bucket: "test-vault-bucket",
+			files: [
+				{
+					path: originalPath,
+					name: "tracked.txt",
+					size: originalStats.size,
+					modifiedAtMs: originalStats.mtimeMs,
+					deviceId: originalStats.dev,
+					inode: originalStats.ino,
+				},
+			],
+		});
+		expect(uploaded.get(originalPath)?.status).toBe("uploaded");
+
+		const renamedPath = join(tempDir, "renamed.txt");
+		renameSync(originalPath, renamedPath);
+		const renamedStats = statSync(renamedPath);
+		const renamed = statusUseCase.execute({
+			profileName: "test-profile",
+			bucket: "test-vault-bucket",
+			files: [
+				{
+					path: renamedPath,
+					name: "renamed.txt",
+					size: renamedStats.size,
+					modifiedAtMs: renamedStats.mtimeMs,
+					deviceId: renamedStats.dev,
+					inode: renamedStats.ino,
+				},
+			],
+		});
+		expect(renamed.get(renamedPath)?.status).toBe("renamed");
+
+		writeFileSync(renamedPath, "changed local content");
+		const changedStats = statSync(renamedPath);
+		const changed = statusUseCase.execute({
+			profileName: "test-profile",
+			bucket: "test-vault-bucket",
+			files: [
+				{
+					path: renamedPath,
+					name: "renamed.txt",
+					size: changedStats.size,
+					modifiedAtMs: changedStats.mtimeMs,
+					deviceId: changedStats.dev,
+					inode: changedStats.ino,
+				},
+			],
+		});
+		expect(changed.get(renamedPath)?.status).toBe("changed");
 	});
 
 	it("supports push with --share and prevents duplicate re-uploading while still returning share URL", async () => {

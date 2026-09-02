@@ -8,8 +8,14 @@ import {
 import type {
 	MultipartRepository,
 	TransferRepository,
+	UploadedFileRepository,
 } from "@S3-vault-CLI/state";
-import type { StorageBackend, UploadedPart } from "@S3-vault-CLI/storage";
+import type {
+	PutObjectResult,
+	StorageBackend,
+	UploadedPart,
+} from "@S3-vault-CLI/storage";
+import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import {
 	closeSync,
@@ -19,9 +25,10 @@ import {
 	mkdirSync,
 	openSync,
 	readSync,
+	statSync,
 	unlinkSync,
 } from "node:fs";
-import { dirname } from "node:path";
+import { basename, dirname } from "node:path";
 import { type RetryOptions, RetryUtils } from "./retry.js";
 import { WorkerPool } from "./worker-pool.js";
 
@@ -42,6 +49,7 @@ export class TransferEngine extends EventEmitter {
 	private storage: StorageBackend;
 	private transferRepo?: TransferRepository;
 	private multipartRepo?: MultipartRepository;
+	private uploadedFileRepo?: UploadedFileRepository;
 	private options: Required<TransferEngineOptions>;
 	private workerPool: WorkerPool;
 	private retryOptions: RetryOptions;
@@ -52,12 +60,14 @@ export class TransferEngine extends EventEmitter {
 		repos?: {
 			transferRepo?: TransferRepository;
 			multipartRepo?: MultipartRepository;
+			uploadedFileRepo?: UploadedFileRepository;
 		},
 	) {
 		super();
 		this.storage = storage;
 		this.transferRepo = repos?.transferRepo;
 		this.multipartRepo = repos?.multipartRepo;
+		this.uploadedFileRepo = repos?.uploadedFileRepo;
 
 		this.options = {
 			profileName: options.profileName,
@@ -167,6 +177,13 @@ export class TransferEngine extends EventEmitter {
 
 		const tasks = plan.items.map((item) => async () => {
 			if (item.action === "skip") {
+				if (
+					plan.direction === "push" ||
+					plan.direction === "sync-up" ||
+					plan.direction === "sync-two-way"
+				) {
+					this.recordSuccessfulUpload(item);
+				}
 				return;
 			}
 
@@ -174,10 +191,11 @@ export class TransferEngine extends EventEmitter {
 
 			try {
 				if (item.action === "upload") {
-					await this.uploadItem(item, (bytes) => {
+					const uploadResult = await this.uploadItem(item, (bytes) => {
 						transferredBytes += bytes;
 						emitProgress(item.relativePath);
 					});
+					this.recordSuccessfulUpload(item, uploadResult);
 				} else if (item.action === "download") {
 					await this.downloadItem(item, (bytes) => {
 						transferredBytes += bytes;
@@ -247,14 +265,14 @@ export class TransferEngine extends EventEmitter {
 	private async uploadItem(
 		item: TransferItem,
 		onBytes: (bytes: number) => void,
-	): Promise<void> {
+	): Promise<PutObjectResult> {
 		const filePath = item.sourcePath;
 		const key = item.targetPath;
 		const fileSize = item.size;
 
 		// Small file upload
 		if (fileSize < this.options.multipartThresholdBytes) {
-			await RetryUtils.withRetry(async () => {
+			const putResult = await RetryUtils.withRetry(async () => {
 				const fileStream = createReadStream(filePath);
 				let sha256: string | undefined;
 
@@ -287,14 +305,16 @@ export class TransferEngine extends EventEmitter {
 						);
 					}
 				}
+
+				return putRes;
 			}, this.retryOptions);
 
 			onBytes(fileSize);
-			return;
+			return putResult;
 		}
 
 		// Multipart upload
-		await this.uploadMultipartItem(filePath, key, fileSize, onBytes);
+		return await this.uploadMultipartItem(filePath, key, fileSize, onBytes);
 	}
 
 	private async uploadMultipartItem(
@@ -302,7 +322,7 @@ export class TransferEngine extends EventEmitter {
 		key: string,
 		fileSize: number,
 		onBytes: (bytes: number) => void,
-	): Promise<void> {
+	): Promise<PutObjectResult> {
 		const partSize = this.options.partSizeBytes;
 		const totalParts = Math.ceil(fileSize / partSize);
 
@@ -387,7 +407,7 @@ export class TransferEngine extends EventEmitter {
 			const sortedParts = Array.from(completedPartsMap.values()).sort(
 				(a, b) => a.partNumber - b.partNumber,
 			);
-			await this.storage.completeMultipartUpload({
+			const result = await this.storage.completeMultipartUpload({
 				bucket: this.options.bucket,
 				key,
 				uploadId,
@@ -395,10 +415,58 @@ export class TransferEngine extends EventEmitter {
 			});
 
 			this.multipartRepo?.markCompleted(uploadId);
-		} catch (err) {
-			throw err;
+			return result;
 		} finally {
 			closeSync(fd);
+		}
+	}
+
+	private recordSuccessfulUpload(
+		item: TransferItem,
+		result?: PutObjectResult,
+	): void {
+		if (!this.uploadedFileRepo || !item.localHash) return;
+
+		try {
+			const stats = statSync(item.sourcePath);
+			const sourceMtime = item.localLastModified?.getTime();
+			if (
+				stats.size !== item.size ||
+				(sourceMtime !== undefined &&
+					Math.abs(stats.mtimeMs - sourceMtime) >= 1)
+			) {
+				this.emit("state-warning", {
+					item,
+					message: "Source changed during upload; upload marker was not saved.",
+				});
+				return;
+			}
+
+			this.uploadedFileRepo.upsertSuccessfulUpload({
+				id: randomUUID(),
+				profileName: this.options.profileName,
+				bucket: this.options.bucket,
+				remoteKey: item.targetPath,
+				localPath: item.sourcePath,
+				localName: basename(item.sourcePath),
+				fileSize: stats.size,
+				localMtimeMs: stats.mtimeMs,
+				localSha256: item.localHash,
+				deviceId: stats.dev,
+				inode: stats.ino,
+				remoteEtag: result?.etag ?? item.remoteHash,
+				remoteChecksumSha256:
+					result?.checksumSha256 ??
+					(item.remoteHash && /^[a-f\d]{64}$/i.test(item.remoteHash)
+						? item.remoteHash
+						: undefined),
+				uploadedAt: new Date(),
+			});
+		} catch (error) {
+			this.emit("state-warning", {
+				item,
+				message: error instanceof Error ? error.message : String(error),
+			});
 		}
 	}
 
@@ -418,11 +486,9 @@ export class TransferEngine extends EventEmitter {
 			});
 
 			const writeStream = createWriteStream(targetFile);
-			let downloadedBytes = 0;
 
 			await new Promise<void>((resolve, reject) => {
 				stream.on("data", (chunk: Buffer) => {
-					downloadedBytes += chunk.length;
 					onBytes(chunk.length);
 				});
 				stream.pipe(writeStream);

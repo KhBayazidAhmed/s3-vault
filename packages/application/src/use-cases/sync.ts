@@ -42,6 +42,7 @@ export class SyncUseCase {
 			remotePrefix,
 			conflictPolicy: options.conflictPolicy ?? "newer",
 			deletePolicy: options.deletePolicy ?? "none",
+			computeHash: direction === "sync-up" || direction === "sync-two-way",
 		});
 	}
 
@@ -68,6 +69,7 @@ export class SyncUseCase {
 			{
 				transferRepo: this.context.transferRepo,
 				multipartRepo: this.context.multipartRepo,
+				uploadedFileRepo: this.context.uploadedFileRepo,
 			},
 		);
 

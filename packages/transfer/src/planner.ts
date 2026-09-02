@@ -8,7 +8,7 @@ import {
 	type VaultObject,
 } from "@S3-vault-CLI/domain";
 import type { StorageBackend } from "@S3-vault-CLI/storage";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
 import {
 	type LocalFileInfo,
 	LocalScanner,
@@ -118,7 +118,12 @@ export class TransferPlanner {
 
 				const localHash =
 					options.computeHash && existsSync(localFile.absolutePath)
-						? ChecksumUtils.sha256(readFileSync(localFile.absolutePath))
+						? (
+								await ChecksumUtils.hashStream(
+									createReadStream(localFile.absolutePath),
+									"sha256",
+								)
+							).hash
 						: undefined;
 
 				if (!remoteObj) {

@@ -15,6 +15,7 @@ import {
 	ObjectCacheManager,
 	SnapshotRepository,
 	TransferRepository,
+	UploadedFileRepository,
 } from "@S3-vault-CLI/state";
 import type { StorageBackend } from "@S3-vault-CLI/storage";
 import { BackendFactory } from "./backend-factory.js";
@@ -28,6 +29,7 @@ export class ServiceContext {
 	readonly lockManager: LockManager;
 	readonly cacheManager: ObjectCacheManager;
 	readonly snapshotRepo: SnapshotRepository;
+	readonly uploadedFileRepo: UploadedFileRepository;
 
 	constructor(
 		options: {
@@ -44,6 +46,7 @@ export class ServiceContext {
 		this.lockManager = new LockManager(this.dbManager.rawDb);
 		this.cacheManager = new ObjectCacheManager(this.dbManager.rawDb);
 		this.snapshotRepo = new SnapshotRepository(options.customSnapshotsDir);
+		this.uploadedFileRepo = new UploadedFileRepository(this.dbManager.rawDb);
 	}
 
 	resolveRuntime(overrides: CliConfigOverrides = {}): {

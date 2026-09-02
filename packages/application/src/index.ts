@@ -5,6 +5,7 @@ export * from "./use-cases/dump.js";
 export * from "./use-cases/history.js";
 export * from "./use-cases/init-profile.js";
 export * from "./use-cases/list-objects.js";
+export * from "./use-cases/local-upload-status.js";
 export * from "./use-cases/object-info.js";
 export * from "./use-cases/profile.js";
 export * from "./use-cases/pull.js";

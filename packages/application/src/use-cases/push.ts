@@ -42,8 +42,9 @@ export class PushUseCase {
 			includes: options.includes,
 			excludes: options.excludes,
 			recursive: options.recursive,
-			computeHash:
-				options.verifyChecksum ?? runtimeConfig.transferSettings.verifyChecksum,
+			// Upload markers require a stable content fingerprint even when remote
+			// checksum verification is disabled.
+			computeHash: true,
 			force: options.force,
 		});
 	}
@@ -69,6 +70,7 @@ export class PushUseCase {
 			{
 				transferRepo: this.context.transferRepo,
 				multipartRepo: this.context.multipartRepo,
+				uploadedFileRepo: this.context.uploadedFileRepo,
 			},
 		);
 
