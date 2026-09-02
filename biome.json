@@ -57,6 +57,10 @@
 				"useEnumInitializers": "error",
 				"useSelfClosingElements": "error",
 				"useSingleVarDeclarator": "error",
+				"noExcessiveLinesPerFile": {
+					"level": "error",
+					"options": { "maxLines": 250 }
+				},
 				"noUnusedTemplateLiteral": "error",
 				"useNumberNamespace": "error",
 				"noInferrableTypes": "error",
