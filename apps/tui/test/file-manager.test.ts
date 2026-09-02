@@ -3,6 +3,8 @@ import { describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { getDualPaneLayout } from "../src/components/dual-pane-view.js";
+import { renderProgressBar } from "../src/components/shortcut-bar.js";
 import { LocalBrowser } from "../src/file-manager/local-browser.js";
 import { RemoteBrowser } from "../src/file-manager/remote-browser.js";
 import { TuiStateManager } from "../src/file-manager/tui-state.js";
@@ -45,6 +47,36 @@ describe("TUI File Manager: Local & Remote Browser & State", () => {
 		expect(stateManager.getState().modalCursor).toBe(1);
 		stateManager.closeModal();
 		expect(stateManager.getState().activeModal).toBe("none");
+	});
+
+	it("normalizes transfer progress from byte counts", () => {
+		const stateManager = new TuiStateManager();
+
+		stateManager.setProgress({
+			active: true,
+			transferredBytes: 1_900,
+			totalBytes: 3_100,
+			percentage: 0,
+		});
+		expect(stateManager.getState().progress.percentage).toBe(61);
+
+		stateManager.setProgress({ transferredBytes: 4_000 });
+		expect(stateManager.getState().progress.percentage).toBe(100);
+		expect(renderProgressBar(150, 4)).toBe("[████] 100%");
+	});
+
+	it("uses a single active pane on narrow terminals and scales visible rows", () => {
+		expect(getDualPaneLayout(60, 24)).toEqual({
+			singlePane: true,
+			paneWidth: 54,
+			visibleRows: 10,
+		});
+		expect(getDualPaneLayout(120, 40)).toEqual({
+			singlePane: false,
+			paneWidth: 56,
+			visibleRows: 26,
+		});
+		expect(getDualPaneLayout(80, 10).visibleRows).toBe(1);
 	});
 
 	it("RemoteBrowser: groups remote S3 objects into virtual folders", async () => {

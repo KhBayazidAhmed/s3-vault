@@ -64,6 +64,9 @@ export class LocalBrowser {
 						isDirectory: isDir,
 						size: isDir ? 0 : stats.size,
 						modifiedAt: formattedDate,
+						modifiedAtMs: stats.mtimeMs,
+						deviceId: stats.dev,
+						inode: stats.ino,
 					};
 
 					if (isDir) {
@@ -81,7 +84,7 @@ export class LocalBrowser {
 			files.sort((a, b) => a.name.localeCompare(b.name));
 
 			items.push(...dirs, ...files);
-		} catch (err: unknown) {
+		} catch {
 			// Return just parent entry if directory read failed
 		}
 

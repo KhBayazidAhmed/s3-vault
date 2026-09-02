@@ -1,10 +1,17 @@
+import type { LocalUploadStatus } from "@S3-vault-CLI/domain";
+
 export interface FileItem {
 	name: string;
 	path: string;
 	isDirectory: boolean;
 	size: number;
 	modifiedAt?: string;
+	modifiedAtMs?: number;
+	deviceId?: number;
+	inode?: number;
 	etag?: string;
+	uploadStatus?: LocalUploadStatus;
+	uploadedDestination?: string;
 }
 
 export type PaneType = "local" | "remote";

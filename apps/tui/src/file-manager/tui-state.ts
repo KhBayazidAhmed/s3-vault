@@ -1,4 +1,7 @@
-import type { ServiceContext } from "@S3-vault-CLI/application";
+import {
+	LocalUploadStatusUseCase,
+	type ServiceContext,
+} from "@S3-vault-CLI/application";
 import { LocalBrowser } from "./local-browser.js";
 import { RemoteBrowser } from "./remote-browser.js";
 import type {
@@ -11,6 +14,7 @@ import type {
 export class TuiStateManager {
 	private state: TuiState;
 	private onChangeListeners: (() => void)[] = [];
+	private context?: ServiceContext;
 
 	constructor(initialPath: string = process.cwd()) {
 		this.state = {
@@ -157,6 +161,28 @@ export class TuiStateManager {
 
 	refreshLocal() {
 		this.state.localItems = LocalBrowser.readDirectory(this.state.localPath);
+
+		if (
+			this.context &&
+			this.state.activeProfileName &&
+			this.state.activeBucket
+		) {
+			const statuses = new LocalUploadStatusUseCase(this.context).execute({
+				profileName: this.state.activeProfileName,
+				bucket: this.state.activeBucket,
+				files: this.state.localItems,
+			});
+			this.state.localItems = this.state.localItems.map((item) => {
+				const result = statuses.get(item.path);
+				return result
+					? {
+							...item,
+							uploadStatus: result.status,
+							uploadedDestination: result.destination,
+						}
+					: item;
+			});
+		}
 		if (this.state.localCursor >= this.state.localItems.length) {
 			this.state.localCursor = Math.max(0, this.state.localItems.length - 1);
 		}
@@ -190,6 +216,7 @@ export class TuiStateManager {
 	}
 
 	async refreshRemote(context: ServiceContext) {
+		this.context = context;
 		const profiles = context.configManager.listProfiles();
 		this.state.availableProfiles = profiles.map((p) => ({
 			name: p.name,
@@ -205,7 +232,7 @@ export class TuiStateManager {
 			this.state.activeProfileName = undefined;
 			this.state.activeBucket = undefined;
 			this.state.statusOk = false;
-			this.notify();
+			this.refreshLocal();
 			return;
 		}
 
@@ -235,11 +262,11 @@ export class TuiStateManager {
 					this.state.remoteItems.length - 1,
 				);
 			}
-		} catch (err: unknown) {
+		} catch {
 			this.state.statusOk = false;
 			this.state.remoteItems = [];
 		}
-		this.notify();
+		this.refreshLocal();
 	}
 
 	setRemotePrefix(prefix: string, context: ServiceContext) {
@@ -259,9 +286,24 @@ export class TuiStateManager {
 	}
 
 	setProgress(progress: Partial<TransferProgressState>) {
-		this.state.progress = {
+		const next = {
 			...this.state.progress,
 			...progress,
+		};
+		const transferredBytes = Math.max(0, next.transferredBytes);
+		const totalBytes = Math.max(0, next.totalBytes);
+		const percentage =
+			totalBytes > 0
+				? Math.round(
+						(Math.min(transferredBytes, totalBytes) / totalBytes) * 100,
+					)
+				: 0;
+
+		this.state.progress = {
+			...next,
+			transferredBytes,
+			totalBytes,
+			percentage,
 		};
 		this.notify();
 	}

@@ -10,7 +10,10 @@ import { ClipboardUtils } from "@S3-vault-CLI/output";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { BoxRenderable, createCliRenderer, type KeyEvent } from "@opentui/core";
-import { createDualPaneView } from "./components/dual-pane-view.js";
+import {
+	createDualPaneView,
+	getDualPaneLayout,
+} from "./components/dual-pane-view.js";
 import { createModalView } from "./components/modal-view.js";
 import {
 	createBottomBarView,
@@ -68,8 +71,9 @@ export async function runInteractiveTui(context: ServiceContext) {
 	renderer.keyInput.on("keypress", async (key: KeyEvent) => {
 		const state = stateManager.getState();
 		const keyName = (key.name || "").toLowerCase();
-		const termHeight = renderer.height || process.stdout.rows || 24;
-		const visibleRows = Math.max(6, termHeight - 12);
+		const termWidth = process.stdout.columns || renderer.width || 80;
+		const termHeight = process.stdout.rows || renderer.height || 24;
+		const { visibleRows } = getDualPaneLayout(termWidth, termHeight);
 
 		// Handle Exit
 		if (
@@ -243,9 +247,19 @@ export async function runInteractiveTui(context: ServiceContext) {
 					stateManager.setLocalPath(item.path);
 					stateManager.setStatus(`Browsing local: ${item.path}`, "info");
 				} else {
+					const uploadDetail =
+						item.uploadStatus === "uploaded"
+							? ` Uploaded to ${item.uploadedDestination}.`
+							: item.uploadStatus === "changed"
+								? " Changed since its last upload."
+								: item.uploadStatus === "renamed"
+									? ` Renamed since upload to ${item.uploadedDestination}.`
+									: "";
 					stateManager.setStatus(
-						`Selected local file: ${item.name} (${item.size} bytes). Press [U] to upload.`,
-						"info",
+						`Selected local file: ${item.name} (${item.size} bytes).${uploadDetail} Press [U] to upload.`,
+						item.uploadStatus === "changed" || item.uploadStatus === "renamed"
+							? "warning"
+							: "info",
 					);
 				}
 			} else {
@@ -301,7 +315,7 @@ export async function runInteractiveTui(context: ServiceContext) {
 					active: true,
 					label: `Uploading ${item.name}`,
 					transferredBytes: 0,
-					totalBytes: item.size || 100,
+					totalBytes: item.size,
 					percentage: 0,
 				});
 
@@ -318,9 +332,8 @@ export async function runInteractiveTui(context: ServiceContext) {
 						stateManager.setProgress({
 							active: true,
 							label: `Uploading ${item.name}`,
-							transferredBytes: p.transferredBytes || 0,
-							totalBytes: p.totalBytes || item.size || 100,
-							percentage: p.percentage || 0,
+							transferredBytes: p.transferredBytes ?? 0,
+							totalBytes: p.totalBytes ?? item.size,
 						});
 					},
 				});
@@ -376,7 +389,7 @@ export async function runInteractiveTui(context: ServiceContext) {
 					active: true,
 					label: `Downloading ${item.name}`,
 					transferredBytes: 0,
-					totalBytes: item.size || 100,
+					totalBytes: item.size,
 					percentage: 0,
 				});
 
@@ -391,9 +404,8 @@ export async function runInteractiveTui(context: ServiceContext) {
 						stateManager.setProgress({
 							active: true,
 							label: `Downloading ${item.name}`,
-							transferredBytes: p.transferredBytes || 0,
-							totalBytes: p.totalBytes || item.size || 100,
-							percentage: p.percentage || 0,
+							transferredBytes: p.transferredBytes ?? 0,
+							totalBytes: p.totalBytes ?? item.size,
 						});
 					},
 				});

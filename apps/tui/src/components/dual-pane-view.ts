@@ -1,6 +1,12 @@
 import { Formatter } from "@S3-vault-CLI/output";
 import {
 	BoxRenderable,
+	bgBlue,
+	bgGreen,
+	bgMagenta,
+	bgRed,
+	bgYellow,
+	black,
 	blue,
 	bold,
 	type CliRenderer,
@@ -12,6 +18,7 @@ import {
 	type TextChunk,
 	TextRenderable,
 	t,
+	white,
 	yellow,
 } from "@opentui/core";
 import type { FileItem, TuiState } from "../file-manager/types.js";
@@ -26,6 +33,49 @@ function truncateFileName(name: string, maxLen: number): string {
 	if (name.length <= maxLen) return name;
 	if (maxLen <= 4) return name.slice(0, maxLen);
 	return `${name.slice(0, maxLen - 3)}...`;
+}
+
+function getUploadStatusBadge(
+	item: FileItem,
+	expanded: boolean,
+): TextChunk | string {
+	const width = expanded ? 12 : 4;
+	if (item.name === ".." || item.isDirectory) return " ".repeat(width);
+
+	if (expanded) {
+		switch (item.uploadStatus) {
+			case "uploaded":
+				return bgGreen(black(bold(" ✓ UPLOADED ")));
+			case "changed":
+				return bgYellow(black(bold(" ~ CHANGED  ")));
+			case "renamed":
+				return bgMagenta(white(bold(" ↪ RENAMED  ")));
+			case "remote-missing":
+				return bgRed(white(bold(" ! MISSING  ")));
+			case "remote-changed":
+				return bgRed(white(bold(" ! CONFLICT ")));
+			case "checking":
+				return bgBlue(white(bold(" … CHECKING ")));
+			default:
+				return " ".repeat(width);
+		}
+	}
+
+	switch (item.uploadStatus) {
+		case "uploaded":
+			return bgGreen(black(bold(" ✓  ")));
+		case "changed":
+			return bgYellow(black(bold(" ~  ")));
+		case "renamed":
+			return bgMagenta(white(bold(" ↪  ")));
+		case "remote-missing":
+		case "remote-changed":
+			return bgRed(white(bold(" !  ")));
+		case "checking":
+			return bgBlue(white(bold(" …  ")));
+		default:
+			return " ".repeat(width);
+	}
 }
 
 function getFileIcon(name: string, isDirectory: boolean): string {
@@ -78,6 +128,19 @@ function getFileIcon(name: string, isDirectory: boolean): string {
 	return "📄";
 }
 
+export function getDualPaneLayout(termWidth: number, termHeight: number) {
+	const singlePane = termWidth < 72;
+	const paneWidth = singlePane
+		? Math.max(18, termWidth - 6)
+		: Math.max(24, Math.floor((termWidth - 7) / 2));
+
+	return {
+		singlePane,
+		paneWidth,
+		visibleRows: Math.max(1, termHeight - 14),
+	};
+}
+
 export function formatPaneRows(
 	items: FileItem[],
 	cursor: number,
@@ -86,29 +149,57 @@ export function formatPaneRows(
 	emptyMessage: string,
 	paneWidth: number,
 	visibleRows = 14,
+	showUploadStatus = false,
 ): StyledText {
 	if (items.length === 0) {
 		return t`\n  ${dim(emptyMessage)}\n`;
 	}
 
 	const allChunks: TextChunk[] = [];
-	const end = Math.min(items.length, scrollOffset + visibleRows);
+	const safeVisibleRows = Math.max(1, visibleRows);
+	const maxOffset = Math.max(0, items.length - 1);
+	let effectiveOffset = Math.min(Math.max(0, scrollOffset), maxOffset);
+	const itemCapacity = Math.max(1, safeVisibleRows - 2);
+	if (cursor < effectiveOffset) effectiveOffset = cursor;
+	if (cursor >= effectiveOffset + itemCapacity) {
+		effectiveOffset = Math.max(0, cursor - itemCapacity + 1);
+	}
+	const showTopIndicator = effectiveOffset > 0 && safeVisibleRows >= 2;
+	let availableItemRows = Math.max(
+		1,
+		safeVisibleRows - (showTopIndicator ? 1 : 0),
+	);
+	let end = Math.min(items.length, effectiveOffset + availableItemRows);
+	const showBottomIndicator = end < items.length && availableItemRows >= 2;
+	if (showBottomIndicator) {
+		availableItemRows--;
+		end = Math.min(items.length, effectiveOffset + availableItemRows);
+	}
 
-	const showDate = paneWidth >= 46;
+	const expandedStatus = showUploadStatus && paneWidth >= 44;
+	const statusColWidth = showUploadStatus ? (expandedStatus ? 12 : 4) : 0;
+	const showDate = paneWidth >= (showUploadStatus ? 68 : 46);
+	const showSize = paneWidth >= (showUploadStatus ? 32 : 28);
 	const dateColWidth = showDate ? 14 : 0;
-	const sizeColWidth = 10;
-	// Layout per line: prefix(2) + icon(2) + space(1) + name(nameWidth) + space(2) + size(10) + [space(2) + date(14)]
+	const sizeColWidth = showSize ? 10 : 0;
+	// Layout: prefix + icon + name + optional size + prominent status badge + optional date.
 	const fixedWidth =
-		2 + 2 + 1 + 2 + sizeColWidth + (showDate ? 2 + dateColWidth : 0);
-	const nameWidth = Math.max(10, paneWidth - fixedWidth - 4);
+		2 +
+		2 +
+		1 +
+		2 +
+		sizeColWidth +
+		(showUploadStatus ? 1 + statusColWidth : 0) +
+		(showDate ? 2 + dateColWidth : 0);
+	const nameWidth = Math.max(4, paneWidth - fixedWidth - 4);
 
 	// Top scroll indicator
-	if (scrollOffset > 0) {
-		const topIndicator = t`  ${yellow(`▲ (${scrollOffset} more items above)`)}`;
+	if (showTopIndicator) {
+		const topIndicator = t`  ${yellow(`▲ (${effectiveOffset} more items above)`)}`;
 		allChunks.push(...topIndicator.chunks, { __isChunk: true, text: "\n" });
 	}
 
-	for (let i = scrollOffset; i < end; i++) {
+	for (let i = effectiveOffset; i < end; i++) {
 		const item = items[i];
 		if (!item) continue;
 
@@ -116,30 +207,34 @@ export function formatPaneRows(
 		const isParent = item.name === "..";
 		const isDir = item.isDirectory;
 
+		const statusBadge = showUploadStatus
+			? getUploadStatusBadge(item, expandedStatus)
+			: "";
 		const icon = getFileIcon(item.name, isDir);
 		const truncated = truncateFileName(item.name, nameWidth);
 		const paddedName = truncated.padEnd(nameWidth, " ");
 
 		const sizeText = isDir ? "<DIR>" : Formatter.formatBytes(item.size);
-		const sizeStr = sizeText.padStart(sizeColWidth, " ");
+		const sizeStr = showSize ? sizeText.padStart(sizeColWidth, " ") : "";
 		const dateStr =
 			showDate && item.modifiedAt
 				? (item.modifiedAt || "").padStart(dateColWidth, " ")
 				: "";
 
+		const badgeGap = showUploadStatus ? " " : "";
 		let lineChunk: StyledText;
 		if (isSelected && isActivePane) {
 			const prefix = green(bold("❯ "));
 			const nameChunk = cyan(bold(paddedName));
 			const sizeChunk = isDir ? dim(sizeStr) : yellow(bold(sizeStr));
 			const dateChunk = showDate ? dim(`  ${dateStr}`) : "";
-			lineChunk = t`${prefix}${icon} ${nameChunk}  ${sizeChunk}${dateChunk}`;
+			lineChunk = t`${prefix}${icon} ${nameChunk}  ${sizeChunk}${badgeGap}${statusBadge}${dateChunk}`;
 		} else if (isSelected && !isActivePane) {
 			const prefix = dim("› ");
 			const nameChunk = isDir || isParent ? blue(bold(paddedName)) : paddedName;
 			const sizeChunk = isDir ? dim(sizeStr) : yellow(sizeStr);
 			const dateChunk = showDate ? dim(`  ${dateStr}`) : "";
-			lineChunk = t`${prefix}${icon} ${nameChunk}  ${sizeChunk}${dateChunk}`;
+			lineChunk = t`${prefix}${icon} ${nameChunk}  ${sizeChunk}${badgeGap}${statusBadge}${dateChunk}`;
 		} else {
 			const prefix = "  ";
 			const nameChunk =
@@ -150,7 +245,7 @@ export function formatPaneRows(
 						: paddedName;
 			const sizeChunk = isDir ? dim(sizeStr) : yellow(sizeStr);
 			const dateChunk = showDate ? dim(`  ${dateStr}`) : "";
-			lineChunk = t`${prefix}${icon} ${nameChunk}  ${sizeChunk}${dateChunk}`;
+			lineChunk = t`${prefix}${icon} ${nameChunk}  ${sizeChunk}${badgeGap}${statusBadge}${dateChunk}`;
 		}
 
 		allChunks.push(...lineChunk.chunks, { __isChunk: true, text: "\n" });
@@ -158,7 +253,7 @@ export function formatPaneRows(
 
 	// Bottom scroll indicator
 	const remaining = items.length - end;
-	if (remaining > 0) {
+	if (showBottomIndicator && remaining > 0) {
 		const botIndicator = t`  ${yellow(`▼ (${remaining} more items below)`)}`;
 		allChunks.push(...botIndicator.chunks, { __isChunk: true, text: "\n" });
 	}
@@ -186,6 +281,7 @@ export function createDualPaneView(renderer: CliRenderer) {
 		title: " 📂 LOCAL ",
 		titleAlignment: "left",
 		paddingX: 1,
+		overflow: "hidden",
 	});
 	leftBox.add(leftText);
 
@@ -199,6 +295,7 @@ export function createDualPaneView(renderer: CliRenderer) {
 		title: " ☁️ REMOTE ",
 		titleAlignment: "left",
 		paddingX: 1,
+		overflow: "hidden",
 	});
 	rightBox.add(rightText);
 
@@ -207,16 +304,24 @@ export function createDualPaneView(renderer: CliRenderer) {
 		flexGrow: 1,
 		gap: 1,
 		width: "100%",
+		overflow: "hidden",
 	});
 	container.add(leftBox);
 	container.add(rightBox);
 
 	const update = (state: TuiState) => {
-		const termWidth = renderer.width || process.stdout.columns || 80;
-		const termHeight = renderer.height || process.stdout.rows || 24;
+		const termWidth = process.stdout.columns || renderer.width || 80;
+		const termHeight = process.stdout.rows || renderer.height || 24;
+		const { singlePane, paneWidth, visibleRows } = getDualPaneLayout(
+			termWidth,
+			termHeight,
+		);
 
-		const paneWidth = Math.max(28, Math.floor((termWidth - 6) / 2));
-		const visibleRows = Math.max(6, termHeight - 12);
+		container.gap = singlePane ? 0 : 1;
+		leftBox.width = singlePane ? "100%" : "50%";
+		rightBox.width = singlePane ? "100%" : "50%";
+		leftBox.visible = !singlePane || state.activePane === "local";
+		rightBox.visible = !singlePane || state.activePane === "remote";
 
 		const isLocalActive = state.activePane === "local";
 		const isRemoteActive = state.activePane === "remote";
@@ -232,6 +337,7 @@ export function createDualPaneView(renderer: CliRenderer) {
 			"Folder is empty.",
 			paneWidth,
 			visibleRows,
+			true,
 		);
 
 		// Update Right Box (Remote)
