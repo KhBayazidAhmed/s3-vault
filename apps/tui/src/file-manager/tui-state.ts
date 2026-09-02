@@ -20,6 +20,9 @@ export class TuiStateManager {
 	constructor(initialPath: string = process.cwd()) {
 		this.state = {
 			activePane: "local",
+			searchQuery: "",
+			searchPane: "local",
+			searchActive: false,
 			localPath: initialPath,
 			localItems: [],
 			localCursor: 0,
@@ -76,7 +79,73 @@ export class TuiStateManager {
 	togglePane() {
 		this.state.activePane =
 			this.state.activePane === "local" ? "remote" : "local";
+		this.state.searchActive = false;
 		this.notify();
+	}
+
+	getItemsForPane(
+		pane: "local" | "remote" = this.state.activePane,
+	): FileItem[] {
+		const items =
+			pane === "local" ? this.state.localItems : this.state.remoteItems;
+		if (this.state.searchPane !== pane || !this.state.searchQuery) return items;
+
+		const query = this.state.searchQuery.toLocaleLowerCase();
+		return items.filter((item) =>
+			item.name.toLocaleLowerCase().includes(query),
+		);
+	}
+
+	startSearch(initialQuery = "") {
+		this.state.searchPane = this.state.activePane;
+		this.state.searchQuery = initialQuery;
+		this.state.searchActive = true;
+		this.resetActiveCursor();
+		this.notify();
+	}
+
+	appendSearch(text: string) {
+		if (!this.state.searchActive || !text) return;
+		this.state.searchQuery += text;
+		this.resetActiveCursor();
+		this.notify();
+	}
+
+	deleteSearchCharacter() {
+		if (!this.state.searchActive) return;
+		this.state.searchQuery = this.state.searchQuery.slice(0, -1);
+		this.resetActiveCursor();
+		this.notify();
+	}
+
+	finishSearch() {
+		if (!this.state.searchActive) return;
+		this.state.searchActive = false;
+		this.notify();
+	}
+
+	clearSearch() {
+		this.state.searchQuery = "";
+		this.state.searchActive = false;
+		this.resetActiveCursor();
+		this.notify();
+	}
+
+	private resetActiveCursor() {
+		if (this.state.activePane === "local") {
+			this.state.localCursor = 0;
+			this.state.localScrollOffset = 0;
+		} else {
+			this.state.remoteCursor = 0;
+			this.state.remoteScrollOffset = 0;
+		}
+	}
+
+	private clearSearchForPane(pane: "local" | "remote") {
+		if (this.state.searchPane === pane) {
+			this.state.searchQuery = "";
+			this.state.searchActive = false;
+		}
 	}
 
 	moveCursor(delta: number, maxVisibleRows = 12) {
@@ -92,7 +161,7 @@ export class TuiStateManager {
 		}
 
 		if (this.state.activePane === "local") {
-			const total = this.state.localItems.length;
+			const total = this.getItemsForPane("local").length;
 			if (total === 0) return;
 			const next = Math.max(
 				0,
@@ -107,7 +176,7 @@ export class TuiStateManager {
 				this.state.localScrollOffset = next - maxVisibleRows + 1;
 			}
 		} else {
-			const total = this.state.remoteItems.length;
+			const total = this.getItemsForPane("remote").length;
 			if (total === 0) return;
 			const next = Math.max(
 				0,
@@ -138,13 +207,13 @@ export class TuiStateManager {
 
 	jumpToBottom(maxVisibleRows = 14) {
 		if (this.state.activePane === "local") {
-			const total = this.state.localItems.length;
+			const total = this.getItemsForPane("local").length;
 			if (total > 0) {
 				this.state.localCursor = total - 1;
 				this.state.localScrollOffset = Math.max(0, total - maxVisibleRows);
 			}
 		} else {
-			const total = this.state.remoteItems.length;
+			const total = this.getItemsForPane("remote").length;
 			if (total > 0) {
 				this.state.remoteCursor = total - 1;
 				this.state.remoteScrollOffset = Math.max(0, total - maxVisibleRows);
@@ -153,11 +222,13 @@ export class TuiStateManager {
 		this.notify();
 	}
 
-	getSelectedItem(): FileItem | undefined {
-		if (this.state.activePane === "local") {
-			return this.state.localItems[this.state.localCursor];
-		}
-		return this.state.remoteItems[this.state.remoteCursor];
+	getSelectedItem(
+		pane: "local" | "remote" = this.state.activePane,
+	): FileItem | undefined {
+		const items = this.getItemsForPane(pane);
+		const cursor =
+			pane === "local" ? this.state.localCursor : this.state.remoteCursor;
+		return items[cursor];
 	}
 
 	refreshLocal() {
@@ -218,12 +289,14 @@ export class TuiStateManager {
 	}
 
 	private normalizeLocalCursor() {
-		if (this.state.localCursor >= this.state.localItems.length) {
-			this.state.localCursor = Math.max(0, this.state.localItems.length - 1);
+		const total = this.getItemsForPane("local").length;
+		if (this.state.localCursor >= total) {
+			this.state.localCursor = Math.max(0, total - 1);
 		}
 	}
 
 	setLocalPath(newPath: string) {
+		this.clearSearchForPane("local");
 		this.state.localPath = newPath;
 		this.state.localCursor = 0;
 		this.state.localScrollOffset = 0;
@@ -290,11 +363,9 @@ export class TuiStateManager {
 				this.state.remotePrefix,
 			);
 
-			if (this.state.remoteCursor >= this.state.remoteItems.length) {
-				this.state.remoteCursor = Math.max(
-					0,
-					this.state.remoteItems.length - 1,
-				);
+			const remoteTotal = this.getItemsForPane("remote").length;
+			if (this.state.remoteCursor >= remoteTotal) {
+				this.state.remoteCursor = Math.max(0, remoteTotal - 1);
 			}
 			await this.refreshLocalWithRemoteVerification(storage);
 			return;
@@ -306,6 +377,7 @@ export class TuiStateManager {
 	}
 
 	setRemotePrefix(prefix: string, context: ServiceContext) {
+		this.clearSearchForPane("remote");
 		this.state.remotePrefix = prefix;
 		this.state.remoteCursor = 0;
 		this.state.remoteScrollOffset = 0;

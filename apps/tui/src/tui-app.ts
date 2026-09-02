@@ -75,11 +75,8 @@ export async function runInteractiveTui(context: ServiceContext) {
 		const termHeight = process.stdout.rows || renderer.height || 24;
 		const { visibleRows } = getDualPaneLayout(termWidth, termHeight);
 
-		// Handle Exit
-		if (
-			(key.ctrl && keyName === "c") ||
-			(state.activeModal === "none" && keyName === "q")
-		) {
+		// Ctrl+C always exits, including while typing a search.
+		if (key.ctrl && keyName === "c") {
 			renderer.destroy();
 			process.exit(0);
 		}
@@ -89,6 +86,9 @@ export async function runInteractiveTui(context: ServiceContext) {
 			if (state.activeModal !== "none") {
 				stateManager.closeModal();
 				stateManager.setStatus("Action cancelled.", "info");
+			} else if (state.searchActive || state.searchQuery) {
+				stateManager.clearSearch();
+				stateManager.setStatus("Search cleared.", "info");
 			}
 			return;
 		}
@@ -193,6 +193,49 @@ export async function runInteractiveTui(context: ServiceContext) {
 			return;
 		}
 
+		// Search input captures text before single-letter shortcuts.
+		if (state.searchActive) {
+			if (keyName === "return") {
+				stateManager.finishSearch();
+				stateManager.setStatus(
+					state.searchQuery
+						? `Filtered ${state.searchPane} files by “${state.searchQuery}”. Press Esc to clear.`
+						: "Search closed.",
+					"info",
+				);
+				return;
+			}
+			if (keyName === "backspace") {
+				stateManager.deleteSearchCharacter();
+				return;
+			}
+			if (
+				!key.ctrl &&
+				!key.meta &&
+				key.sequence &&
+				Array.from(key.sequence).length === 1 &&
+				key.sequence >= " " &&
+				key.sequence !== "\u007f"
+			) {
+				stateManager.appendSearch(key.sequence);
+				return;
+			}
+		}
+
+		if (keyName === "q") {
+			renderer.destroy();
+			process.exit(0);
+		}
+
+		if (keyName === "/" || key.sequence === "/") {
+			stateManager.startSearch();
+			stateManager.setStatus(
+				`Searching ${state.activePane} files. Type a name, Enter to keep, Esc to clear.`,
+				"info",
+			);
+			return;
+		}
+
 		// ── Normal Dual-Pane Navigation ──
 
 		// Tab -> Switch pane
@@ -281,10 +324,7 @@ export async function runInteractiveTui(context: ServiceContext) {
 
 		// [U] -> Upload selected local file / folder
 		if (keyName === "u") {
-			const item =
-				state.activePane === "local"
-					? stateManager.getSelectedItem()
-					: state.localItems[state.localCursor];
+			const item = stateManager.getSelectedItem("local");
 
 			if (!item) {
 				stateManager.setStatus(
@@ -362,10 +402,7 @@ export async function runInteractiveTui(context: ServiceContext) {
 
 		// [D] -> Download selected remote object / folder
 		if (keyName === "d") {
-			const item =
-				state.activePane === "remote"
-					? stateManager.getSelectedItem()
-					: state.remoteItems[state.remoteCursor];
+			const item = stateManager.getSelectedItem("remote");
 
 			if (!item) {
 				stateManager.setStatus(
@@ -433,10 +470,7 @@ export async function runInteractiveTui(context: ServiceContext) {
 
 		// [S] -> Generate Presigned Share URL
 		if (keyName === "s") {
-			const item =
-				state.activePane === "remote"
-					? stateManager.getSelectedItem()
-					: state.remoteItems[state.remoteCursor];
+			const item = stateManager.getSelectedItem("remote");
 
 			if (!item || item.isDirectory || item.name === "..") {
 				stateManager.setStatus(
@@ -497,6 +531,22 @@ export async function runInteractiveTui(context: ServiceContext) {
 			await stateManager.refreshRemote(context);
 			stateManager.setStatus("Refreshed local & remote files.", "info");
 			return;
+		}
+
+		// An unassigned printable key begins searching immediately.
+		if (
+			!key.ctrl &&
+			!key.meta &&
+			key.sequence &&
+			Array.from(key.sequence).length === 1 &&
+			key.sequence >= " " &&
+			key.sequence !== "\u007f"
+		) {
+			stateManager.startSearch(key.sequence);
+			stateManager.setStatus(
+				`Searching ${state.activePane} files. Type a name, Enter to keep, Esc to clear.`,
+				"info",
+			);
 		}
 	});
 }

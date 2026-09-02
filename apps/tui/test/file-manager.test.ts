@@ -24,6 +24,43 @@ describe("TUI File Manager: Local & Remote Browser & State", () => {
 		rmSync(tempDir, { recursive: true, force: true });
 	});
 
+	it("filters the active pane while keeping selection and path changes consistent", () => {
+		const tempDir = mkdtempSync(join(tmpdir(), "vault-tui-search-test-"));
+		const nestedDir = join(tempDir, "nested");
+		mkdirSync(nestedDir);
+		writeFileSync(join(tempDir, "Movie-Night.mp4"), "video");
+		writeFileSync(join(tempDir, "movie-notes.txt"), "notes");
+		writeFileSync(join(tempDir, "report.pdf"), "report");
+
+		const stateManager = new TuiStateManager(tempDir);
+		stateManager.refreshLocal();
+		stateManager.startSearch("MOVIE");
+
+		expect(stateManager.getState().searchActive).toBe(true);
+		const matches = stateManager.getItemsForPane("local");
+		expect(matches.map((item) => item.name).sort()).toEqual(
+			["Movie-Night.mp4", "movie-notes.txt"].sort(),
+		);
+		expect(stateManager.getSelectedItem()?.name).toBe(matches[0]?.name);
+
+		stateManager.moveCursor(1);
+		expect(stateManager.getSelectedItem()?.name).toBe(matches[1]?.name);
+		stateManager.deleteSearchCharacter();
+		expect(stateManager.getState().searchQuery).toBe("MOVI");
+		stateManager.finishSearch();
+		expect(stateManager.getState().searchActive).toBe(false);
+		expect(stateManager.getItemsForPane("local")).toHaveLength(2);
+
+		stateManager.clearSearch();
+		expect(stateManager.getItemsForPane("local").length).toBeGreaterThan(2);
+		stateManager.startSearch("nested");
+		stateManager.setLocalPath(nestedDir);
+		expect(stateManager.getState().searchQuery).toBe("");
+		expect(stateManager.getState().searchActive).toBe(false);
+
+		rmSync(tempDir, { recursive: true, force: true });
+	});
+
 	it("TuiStateManager: navigates cursor, bounds check, and toggles pane", () => {
 		const stateManager = new TuiStateManager();
 		stateManager.refreshLocal();

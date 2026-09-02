@@ -161,12 +161,12 @@ export function createBottomBarView(renderer: CliRenderer) {
 						: t`${cyan("[Tab]")} Switch   ${cyan("[↑/↓, j/k]")} Move   ${cyan("[Enter, l]")} Open   ${cyan("[Bksp, h]")} Up Dir   ${cyan("[U]")} Upload   ${cyan("[D]")} Download`;
 		const row2 =
 			termWidth < 50
-				? t`${cyan("[U]")} Upload  ${cyan("[D]")} Download  ${cyan("[P]")} Profiles  ${cyan("[Q]")} Quit`
+				? t`${cyan("[/]")} Search  ${cyan("[P]")} Profiles  ${cyan("[R]")} Refresh  ${cyan("[Q]")} Quit`
 				: termWidth < 72
-					? t`${cyan("[S]")} Share  ${cyan("[X]")} Delete  ${cyan("[P]")} Profiles  ${cyan("[R]")} Refresh  ${cyan("[Q]")} Quit`
+					? t`${cyan("[/]")} Search  ${cyan("[S]")} Share  ${cyan("[X]")} Delete  ${cyan("[P]")} Profiles  ${cyan("[Q]")} Quit`
 					: termWidth < 120
-						? t`${cyan("[S]")} Share  ${cyan("[Del]")} Delete  ${cyan("[P]")} Profiles  ${cyan("[R]")} Refresh  ${cyan("[Home/End]")} Jump  ${cyan("[Q]")} Quit`
-						: t`${cyan("[S]")} Share Link   ${cyan("[Del, x]")} Delete   ${cyan("[P]")} Profiles   ${cyan("[R]")} Refresh   ${cyan("[Home/End, g/G]")} Jump   ${cyan("[Q]")} Quit`;
+						? t`${cyan("[/]")} Search  ${cyan("[S]")} Share  ${cyan("[Del]")} Delete  ${cyan("[P]")} Profiles  ${cyan("[R]")} Refresh  ${cyan("[Q]")} Quit`
+						: t`${cyan("[/, type]")} Search   ${cyan("[S]")} Share Link   ${cyan("[Del, x]")} Delete   ${cyan("[P]")} Profiles   ${cyan("[R]")} Refresh   ${cyan("[Home/End]")} Jump   ${cyan("[Q]")} Quit`;
 
 		chunks.push(...row1.chunks);
 		chunks.push({ __isChunk: true, text: "\n" });

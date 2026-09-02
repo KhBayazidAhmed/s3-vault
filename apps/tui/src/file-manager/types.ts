@@ -43,6 +43,10 @@ export interface ProfileSummary {
 
 export interface TuiState {
 	activePane: PaneType;
+	searchQuery: string;
+	searchPane: PaneType;
+	searchActive: boolean;
+
 	localPath: string;
 	localItems: FileItem[];
 	localCursor: number;

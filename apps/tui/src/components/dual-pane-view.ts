@@ -267,7 +267,20 @@ export function formatPaneRows(
 	return new StyledText(allChunks);
 }
 
+function getFilteredItems(
+	state: TuiState,
+	pane: "local" | "remote",
+): FileItem[] {
+	const items = pane === "local" ? state.localItems : state.remoteItems;
+	if (state.searchPane !== pane || !state.searchQuery) return items;
+
+	const query = state.searchQuery.toLocaleLowerCase();
+	return items.filter((item) => item.name.toLocaleLowerCase().includes(query));
+}
+
 export function createDualPaneView(renderer: CliRenderer) {
+	const leftSearchText = new TextRenderable(renderer, { content: "" });
+	const rightSearchText = new TextRenderable(renderer, { content: "" });
 	const leftText = new TextRenderable(renderer, { content: "" });
 	const rightText = new TextRenderable(renderer, { content: "" });
 
@@ -283,6 +296,7 @@ export function createDualPaneView(renderer: CliRenderer) {
 		paddingX: 1,
 		overflow: "hidden",
 	});
+	leftBox.add(leftSearchText);
 	leftBox.add(leftText);
 
 	const rightBox = new BoxRenderable(renderer, {
@@ -297,6 +311,7 @@ export function createDualPaneView(renderer: CliRenderer) {
 		paddingX: 1,
 		overflow: "hidden",
 	});
+	rightBox.add(rightSearchText);
 	rightBox.add(rightText);
 
 	const container = new BoxRenderable(renderer, {
@@ -325,18 +340,38 @@ export function createDualPaneView(renderer: CliRenderer) {
 
 		const isLocalActive = state.activePane === "local";
 		const isRemoteActive = state.activePane === "remote";
+		const localItems = getFilteredItems(state, "local");
+		const remoteItems = getFilteredItems(state, "remote");
+		const showLocalSearch =
+			state.searchPane === "local" &&
+			(state.searchActive || !!state.searchQuery);
+		const showRemoteSearch =
+			state.searchPane === "remote" &&
+			(state.searchActive || !!state.searchQuery);
+		const searchCursor = state.searchActive ? "█" : "";
+		const searchHint = state.searchQuery || "type to filter…";
+
+		leftSearchText.visible = showLocalSearch;
+		rightSearchText.visible = showRemoteSearch;
+		leftSearchText.content = t`${cyan(bold("🔎 Search:"))} ${searchHint}${searchCursor}`;
+		rightSearchText.content = t`${cyan(bold("🔎 Search:"))} ${searchHint}${searchCursor}`;
 
 		// Update Left Box (Local)
 		leftBox.borderColor = RGBA.fromHex(isLocalActive ? "#00e5ff" : "#444444");
-		leftBox.title = ` 📂 LOCAL: ${truncateMiddle(state.localPath, Math.max(10, paneWidth - 16))} (${state.localItems.length}) `;
+		const localCount = showLocalSearch
+			? `${localItems.length}/${state.localItems.length}`
+			: `${state.localItems.length}`;
+		leftBox.title = ` 📂 LOCAL: ${truncateMiddle(state.localPath, Math.max(10, paneWidth - 16))} (${localCount}) `;
 		leftText.content = formatPaneRows(
-			state.localItems,
+			localItems,
 			state.localCursor,
 			state.localScrollOffset,
 			isLocalActive,
-			"Folder is empty.",
+			state.searchQuery && state.searchPane === "local"
+				? "No files match your search."
+				: "Folder is empty.",
 			paneWidth,
-			visibleRows,
+			Math.max(1, visibleRows - (showLocalSearch ? 1 : 0)),
 			true,
 		);
 
@@ -345,7 +380,10 @@ export function createDualPaneView(renderer: CliRenderer) {
 			? `s3://${state.activeBucket}/${state.remotePrefix}`
 			: "No Profile";
 		rightBox.borderColor = RGBA.fromHex(isRemoteActive ? "#00e5ff" : "#444444");
-		rightBox.title = ` ☁️ REMOTE: ${truncateMiddle(remotePathDisplay, Math.max(10, paneWidth - 16))} (${state.remoteItems.length}) `;
+		const remoteCount = showRemoteSearch
+			? `${remoteItems.length}/${state.remoteItems.length}`
+			: `${state.remoteItems.length}`;
+		rightBox.title = ` ☁️ REMOTE: ${truncateMiddle(remotePathDisplay, Math.max(10, paneWidth - 16))} (${remoteCount}) `;
 		const remoteEmpty =
 			state.availableProfiles.length === 0
 				? "No profile configured. Press [P] to set up or create mock sandbox."
@@ -353,13 +391,15 @@ export function createDualPaneView(renderer: CliRenderer) {
 					? "Storage unreachable / credentials missing. Press [P] to switch profile or sandbox."
 					: "Prefix is empty. Press [U] to upload.";
 		rightText.content = formatPaneRows(
-			state.remoteItems,
+			remoteItems,
 			state.remoteCursor,
 			state.remoteScrollOffset,
 			isRemoteActive,
-			remoteEmpty,
+			state.searchQuery && state.searchPane === "remote"
+				? "No objects match your search."
+				: remoteEmpty,
 			paneWidth,
-			visibleRows,
+			Math.max(1, visibleRows - (showRemoteSearch ? 1 : 0)),
 		);
 	};
 
