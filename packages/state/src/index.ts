@@ -4,3 +4,4 @@ export * from "./locks.js";
 export * from "./multipart.js";
 export * from "./snapshots.js";
 export * from "./transfers.js";
+export * from "./uploaded-files.js";

@@ -4,3 +4,4 @@ export * from "./objects.js";
 export * from "./profiles.js";
 export * from "./snapshots.js";
 export * from "./transfers.js";
+export * from "./upload-state.js";

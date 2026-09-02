@@ -139,6 +139,49 @@ export class DatabaseManager {
 				);
 			})();
 		}
+
+		if (currentVersion < 2) {
+			this.db.transaction(() => {
+				this.db.run(`
+				CREATE TABLE IF NOT EXISTS uploaded_files (
+					id TEXT PRIMARY KEY,
+					profile_name TEXT NOT NULL,
+					bucket TEXT NOT NULL,
+					remote_key TEXT NOT NULL,
+					local_path TEXT NOT NULL,
+					local_name TEXT NOT NULL,
+					file_size INTEGER NOT NULL,
+					local_mtime_ms REAL NOT NULL,
+					local_sha256 TEXT NOT NULL,
+					device_id INTEGER,
+					inode INTEGER,
+					remote_etag TEXT,
+					remote_checksum_sha256 TEXT,
+					uploaded_at TEXT NOT NULL,
+					remote_verified_at TEXT,
+					UNIQUE (profile_name, bucket, remote_key)
+				);
+			`);
+
+				this.db.run(`
+				CREATE INDEX IF NOT EXISTS idx_uploaded_files_local_path
+				ON uploaded_files (profile_name, bucket, local_path);
+			`);
+				this.db.run(`
+				CREATE INDEX IF NOT EXISTS idx_uploaded_files_identity
+				ON uploaded_files (profile_name, bucket, device_id, inode);
+			`);
+				this.db.run(`
+				CREATE INDEX IF NOT EXISTS idx_uploaded_files_hash_size
+				ON uploaded_files (profile_name, bucket, local_sha256, file_size);
+			`);
+
+				this.db.run(
+					"INSERT INTO schema_migrations (version, applied_at) VALUES (2, ?)",
+					[new Date().toISOString()],
+				);
+			})();
+		}
 	}
 
 	close(): void {
