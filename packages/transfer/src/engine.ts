@@ -1,62 +1,39 @@
-import {
-	ChecksumUtils,
-	IntegrityError,
-	type TransferItem,
-	type TransferPlan,
-	type TransferProgress,
-} from "@S3-vault-CLI/domain";
+import type { TransferItem, TransferPlan } from "@S3-vault-CLI/domain";
 import type {
 	MultipartRepository,
 	TransferRepository,
 	UploadedFileRepository,
 } from "@S3-vault-CLI/state";
-import type {
-	PutObjectResult,
-	StorageBackend,
-	UploadedPart,
-} from "@S3-vault-CLI/storage";
-import { randomUUID } from "node:crypto";
+import type { PutObjectResult, StorageBackend } from "@S3-vault-CLI/storage";
 import { EventEmitter } from "node:events";
+import { existsSync, unlinkSync } from "node:fs";
+import { downloadItem, recordSuccessfulUpload } from "./engine-files.js";
 import {
-	closeSync,
-	createReadStream,
-	createWriteStream,
-	existsSync,
-	mkdirSync,
-	openSync,
-	readSync,
-	statSync,
-	unlinkSync,
-} from "node:fs";
-import { basename, dirname } from "node:path";
-import { type RetryOptions, RetryUtils } from "./retry.js";
+	makeRetryOptions,
+	type ResolvedEngineOptions,
+	resolveEngineOptions,
+	type TransferEngineOptions,
+} from "./engine-options.js";
+import {
+	createProgressEmitter,
+	type ProgressState,
+} from "./engine-progress.js";
+import { EngineUploader } from "./engine-uploader.js";
+import type { RetryOptions } from "./retry.js";
 import { WorkerPool } from "./worker-pool.js";
 
-export interface TransferEngineOptions {
-	profileName: string;
-	bucket: string;
-	concurrency?: number;
-	multipartThresholdBytes?: number;
-	partSizeBytes?: number;
-	maxRetries?: number;
-	retryBaseDelayMs?: number;
-	retryMaxDelayMs?: number;
-	verifyChecksum?: boolean;
-	dryRun?: boolean;
-}
+export type { TransferEngineOptions } from "./engine-options.js";
 
 export class TransferEngine extends EventEmitter {
-	private storage: StorageBackend;
-	private transferRepo?: TransferRepository;
-	private multipartRepo?: MultipartRepository;
-	private uploadedFileRepo?: UploadedFileRepository;
-	private options: Required<TransferEngineOptions>;
-	private workerPool: WorkerPool;
-	private multipartWorkerPool: WorkerPool;
-	private retryOptions: RetryOptions;
+	private readonly transferRepo?: TransferRepository;
+	private readonly uploadedFileRepo?: UploadedFileRepository;
+	private readonly options: ResolvedEngineOptions;
+	private readonly workerPool: WorkerPool;
+	private readonly retryOptions: RetryOptions;
+	private readonly uploader: EngineUploader;
 
 	constructor(
-		storage: StorageBackend,
+		private readonly storage: StorageBackend,
 		options: TransferEngineOptions,
 		repos?: {
 			transferRepo?: TransferRepository;
@@ -65,115 +42,56 @@ export class TransferEngine extends EventEmitter {
 		},
 	) {
 		super();
-		this.storage = storage;
 		this.transferRepo = repos?.transferRepo;
-		this.multipartRepo = repos?.multipartRepo;
 		this.uploadedFileRepo = repos?.uploadedFileRepo;
-
-		this.options = {
-			profileName: options.profileName,
-			bucket: options.bucket,
-			concurrency: options.concurrency ?? 8,
-			multipartThresholdBytes:
-				options.multipartThresholdBytes ?? 16 * 1024 * 1024,
-			partSizeBytes: options.partSizeBytes ?? 8 * 1024 * 1024,
-			maxRetries: options.maxRetries ?? 3,
-			retryBaseDelayMs: options.retryBaseDelayMs ?? 500,
-			retryMaxDelayMs: options.retryMaxDelayMs ?? 10000,
-			verifyChecksum: options.verifyChecksum ?? true,
-			dryRun: options.dryRun ?? false,
-		};
-
+		this.options = resolveEngineOptions(options);
 		this.workerPool = new WorkerPool(this.options.concurrency);
-		this.multipartWorkerPool = new WorkerPool(this.options.concurrency);
-		this.retryOptions = {
-			maxRetries: this.options.maxRetries,
-			baseDelayMs: this.options.retryBaseDelayMs,
-			maxDelayMs: this.options.retryMaxDelayMs,
-		};
+		this.retryOptions = makeRetryOptions(this.options);
+		this.uploader = new EngineUploader(
+			storage,
+			repos?.multipartRepo,
+			this.options,
+			this.retryOptions,
+			(item, message) => this.emit("state-warning", { item, message }),
+		);
 	}
 
 	async execute(
 		plan: TransferPlan,
 		jobId = `job_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
 	): Promise<{ success: boolean; errors: Error[] }> {
-		const totalFiles = plan.items.filter((i) => i.action !== "skip").length;
-		const totalBytes = plan.totalBytes;
-		let completedFiles = 0;
-		let failedFiles = 0;
-		let transferredBytes = 0;
-		const startTime = Date.now();
+		const totalFiles = plan.items.filter(
+			(item) => item.action !== "skip",
+		).length;
+		const state: ProgressState = {
+			completedFiles: 0,
+			failedFiles: 0,
+			transferredBytes: 0,
+		};
 		const errors: Error[] = [];
-
-		// Save job in DB
-		if (this.transferRepo && !this.options.dryRun) {
-			this.transferRepo.createJob(
-				{
-					id: jobId,
-					profileName: this.options.profileName,
-					direction: plan.direction,
-					sourcePath: plan.items[0]?.sourcePath ?? "",
-					targetPath: plan.items[0]?.targetPath ?? "",
-					totalItems: totalFiles,
-					totalBytes,
-					status: "in_progress",
-					createdAt: new Date(),
-					updatedAt: new Date(),
-				},
-				plan.items,
-			);
-		}
-
+		this.createJob(plan, jobId, totalFiles);
 		this.emit("start", {
 			jobId,
 			totalFiles,
-			totalBytes,
+			totalBytes: plan.totalBytes,
 			dryRun: this.options.dryRun,
 		});
-
-		const emitProgress = (activeItem?: string) => {
-			const elapsedSec = Math.max(0.1, (Date.now() - startTime) / 1000);
-			const speedBytesPerSec = transferredBytes / elapsedSec;
-			const remainingBytes = Math.max(0, totalBytes - transferredBytes);
-			const estimatedRemainingSec =
-				speedBytesPerSec > 0 ? remainingBytes / speedBytesPerSec : 0;
-
-			const progress: TransferProgress = {
-				jobId,
-				totalFiles,
-				completedFiles,
-				failedFiles,
-				totalBytes,
-				transferredBytes,
-				speedBytesPerSec,
-				estimatedRemainingSec,
-				activeItem,
-				status:
-					failedFiles > 0
-						? completedFiles > 0
-							? "in_progress"
-							: "failed"
-						: "in_progress",
-			};
-
-			this.emit("progress", progress);
-		};
+		const emitProgress = createProgressEmitter(
+			jobId,
+			totalFiles,
+			plan.totalBytes,
+			state,
+			(progress) => this.emit("progress", progress),
+		);
 
 		if (this.options.dryRun) {
 			for (const item of plan.items) {
-				if (item.action !== "skip") {
-					transferredBytes += item.size;
-					completedFiles++;
-					emitProgress(item.relativePath);
-				}
+				if (item.action === "skip") continue;
+				state.transferredBytes += item.size;
+				state.completedFiles++;
+				emitProgress(item.relativePath);
 			}
-			this.emit("complete", {
-				jobId,
-				completedFiles,
-				failedFiles: 0,
-				transferredBytes,
-				errors: [],
-			});
+			this.emitComplete(jobId, state, []);
 			return { success: true, errors: [] };
 		}
 
@@ -184,416 +102,120 @@ export class TransferEngine extends EventEmitter {
 					plan.direction === "sync-up" ||
 					plan.direction === "sync-two-way"
 				) {
-					this.recordSuccessfulUpload(item);
+					this.recordUpload(item);
 				}
 				return;
 			}
-
 			this.emit("item-start", item);
-
 			try {
-				if (item.action === "upload") {
-					const uploadResult = await this.uploadItem(item, (bytes) => {
-						transferredBytes += bytes;
-						emitProgress(item.relativePath);
-					});
-					this.recordSuccessfulUpload(item, uploadResult);
-				} else if (item.action === "download") {
-					await this.downloadItem(item, (bytes) => {
-						transferredBytes += bytes;
-						emitProgress(item.relativePath);
-					});
-				} else if (item.action === "delete-remote") {
-					await this.storage.deleteObject({
-						bucket: this.options.bucket,
-						key: item.targetPath,
-					});
-					emitProgress(item.relativePath);
-				} else if (item.action === "delete-local") {
-					if (existsSync(item.sourcePath)) {
-						unlinkSync(item.sourcePath);
-					}
-					emitProgress(item.relativePath);
-				}
-
+				await this.executeItem(item, state, emitProgress);
 				item.status = "completed";
-				completedFiles++;
+				state.completedFiles++;
 				this.transferRepo?.updateTaskStatus(item.id, "completed", item.size);
 				this.emit("item-complete", item);
-			} catch (err: unknown) {
-				const error = err instanceof Error ? err : new Error(String(err));
-				item.status = "failed";
-				item.error = error.message;
-				failedFiles++;
-				errors.push(error);
-				this.transferRepo?.updateTaskStatus(
-					item.id,
-					"failed",
-					0,
-					error.message,
-				);
-				this.emit("item-fail", { item, error });
+			} catch (error: unknown) {
+				this.failItem(item, error, state, errors);
 			}
 		});
-
 		await Promise.all(tasks.map((task) => this.workerPool.run(task)));
 
-		const finalStatus =
-			failedFiles === 0
-				? "completed"
-				: completedFiles > 0
-					? "failed"
-					: "failed";
 		this.transferRepo?.updateJobStatus(
 			jobId,
-			finalStatus,
-			errors.map((e) => e.message).join("; "),
+			state.failedFiles === 0 ? "completed" : "failed",
+			errors.map((error) => error.message).join("; "),
 		);
-
-		this.emit("complete", {
-			jobId,
-			completedFiles,
-			failedFiles,
-			transferredBytes,
-			errors,
-		});
-
-		return {
-			success: failedFiles === 0,
-			errors,
-		};
+		this.emitComplete(jobId, state, errors);
+		return { success: state.failedFiles === 0, errors };
 	}
 
-	private async uploadItem(
-		item: TransferItem,
-		onBytes: (bytes: number) => void,
-	): Promise<PutObjectResult> {
-		const filePath = item.sourcePath;
-		const key = item.targetPath;
-		const fileSize = item.size;
-
-		// Small file upload
-		if (fileSize < this.options.multipartThresholdBytes) {
-			const putResult = await RetryUtils.withRetry(async () => {
-				const fileStream = createReadStream(filePath);
-				let sha256: string | undefined;
-
-				if (this.options.verifyChecksum) {
-					const { hash } = await ChecksumUtils.hashStream(
-						createReadStream(filePath),
-						"sha256",
-					);
-					sha256 = hash;
-				}
-
-				const putRes = await this.storage.putObject({
-					bucket: this.options.bucket,
-					key,
-					body: fileStream,
-					size: fileSize,
-					checksumSha256: sha256,
-				});
-
-				// Verification
-				if (this.options.verifyChecksum && sha256 && putRes.checksumSha256) {
-					if (sha256.toLowerCase() !== putRes.checksumSha256.toLowerCase()) {
-						throw new IntegrityError(
-							`Uploaded object '${key}' checksum mismatch (expected ${sha256}, got ${putRes.checksumSha256}).`,
-							{
-								key,
-								expectedChecksum: sha256,
-								actualChecksum: putRes.checksumSha256,
-							},
-						);
-					}
-				}
-
-				return putRes;
-			}, this.retryOptions);
-
-			onBytes(fileSize);
-			return putResult;
-		}
-
-		// Multipart upload
-		return await this.uploadMultipartItem(item, onBytes);
-	}
-
-	private async uploadMultipartItem(
-		item: TransferItem,
-		onBytes: (bytes: number) => void,
-	): Promise<PutObjectResult> {
-		const filePath = item.sourcePath;
-		const key = item.targetPath;
-		const fileSize = item.size;
-		const sourceStats = statSync(filePath);
-		const sourceMtimeMs = sourceStats.mtimeMs;
-		const partSize = this.options.partSizeBytes;
-		const totalParts = Math.ceil(fileSize / partSize);
-
-		// Check for resumable session
-		let uploadId: string;
-		const completedPartsMap = new Map<number, UploadedPart>();
-
-		const existingSession = this.multipartRepo?.findActiveSession(
-			this.options.profileName,
-			this.options.bucket,
-			key,
-			filePath,
-		);
-
-		const canResume =
-			existingSession != null &&
-			existingSession.partSize === partSize &&
-			existingSession.totalParts === totalParts &&
-			existingSession.totalBytes === fileSize &&
-			existingSession.sourceMtimeMs !== undefined &&
-			Math.abs(existingSession.sourceMtimeMs - sourceMtimeMs) < 1 &&
-			(item.localHash === undefined ||
-				existingSession.sourceSha256 === item.localHash);
-
-		if (existingSession && canResume) {
-			uploadId = existingSession.uploadId;
-			for (const p of existingSession.parts) {
-				completedPartsMap.set(p.partNumber, p);
-				onBytes(p.size);
-			}
-		} else {
-			if (existingSession) {
-				try {
-					await this.storage.abortMultipartUpload({
-						bucket: this.options.bucket,
-						key,
-						uploadId: existingSession.uploadId,
-					});
-				} catch (error) {
-					this.emit("state-warning", {
-						item,
-						message: `Could not clean up stale multipart upload '${existingSession.uploadId}': ${error instanceof Error ? error.message : String(error)}`,
-					});
-				} finally {
-					this.multipartRepo?.markAborted(existingSession.uploadId);
-				}
-			}
-
-			const init = await RetryUtils.withRetry(
-				async () =>
-					await this.storage.createMultipartUpload({
-						bucket: this.options.bucket,
-						key,
-					}),
-				this.retryOptions,
-			);
-			uploadId = init.uploadId;
-
-			this.multipartRepo?.saveSession({
-				uploadId,
-				profileName: this.options.profileName,
-				bucket: this.options.bucket,
-				key,
-				filePath,
-				partSize,
-				totalParts,
-				totalBytes: fileSize,
-				sourceMtimeMs,
-				sourceSha256: item.localHash,
-			});
-		}
-
-		const fd = openSync(filePath, "r");
-
-		try {
-			const partTasks: Promise<void>[] = [];
-
-			for (let partNumber = 1; partNumber <= totalParts; partNumber++) {
-				if (completedPartsMap.has(partNumber)) {
-					continue; // Part already uploaded in previous session
-				}
-
-				partTasks.push(
-					this.multipartWorkerPool.run(async () => {
-						const startOffset = (partNumber - 1) * partSize;
-						const currentPartSize = Math.min(partSize, fileSize - startOffset);
-						const partBuffer = Buffer.allocUnsafe(currentPartSize);
-						const bytesRead = readSync(
-							fd,
-							partBuffer,
-							0,
-							currentPartSize,
-							startOffset,
-						);
-						if (bytesRead !== currentPartSize) {
-							throw new IntegrityError(
-								`Source file '${filePath}' changed or became unreadable during upload.`,
-								{ key },
-							);
-						}
-
-						const uploadedPart = await RetryUtils.withRetry(async () => {
-							return await this.storage.uploadPart({
-								bucket: this.options.bucket,
-								key,
-								uploadId,
-								partNumber,
-								body: partBuffer,
-								size: currentPartSize,
-							});
-						}, this.retryOptions);
-
-						completedPartsMap.set(partNumber, uploadedPart);
-						this.multipartRepo?.recordPart({
-							uploadId,
-							partNumber,
-							etag: uploadedPart.etag,
-							checksumSha256: uploadedPart.checksumSha256,
-							size: currentPartSize,
-						});
-						onBytes(currentPartSize);
-					}),
-				);
-			}
-
-			const partResults = await Promise.allSettled(partTasks);
-			const failedPart = partResults.find(
-				(result): result is PromiseRejectedResult =>
-					result.status === "rejected",
-			);
-			if (failedPart) throw failedPart.reason;
-
-			const finalStats = statSync(filePath);
-			if (
-				finalStats.size !== fileSize ||
-				Math.abs(finalStats.mtimeMs - sourceMtimeMs) >= 1
-			) {
-				await this.storage.abortMultipartUpload({
-					bucket: this.options.bucket,
-					key,
-					uploadId,
-				});
-				this.multipartRepo?.markAborted(uploadId);
-				throw new IntegrityError(
-					`Source file '${filePath}' changed during upload; the multipart upload was aborted.`,
-					{ key },
-				);
-			}
-
-			// Complete multipart upload only after every part is durably recorded.
-			const sortedParts = Array.from(completedPartsMap.values()).sort(
-				(a, b) => a.partNumber - b.partNumber,
-			);
-			const result = await RetryUtils.withRetry(
-				async () =>
-					await this.storage.completeMultipartUpload({
-						bucket: this.options.bucket,
-						key,
-						uploadId,
-						parts: sortedParts,
-					}),
-				this.retryOptions,
-			);
-
-			this.multipartRepo?.markCompleted(uploadId);
-			return result;
-		} finally {
-			closeSync(fd);
-		}
-	}
-
-	private recordSuccessfulUpload(
-		item: TransferItem,
-		result?: PutObjectResult,
+	private createJob(
+		plan: TransferPlan,
+		jobId: string,
+		totalFiles: number,
 	): void {
-		if (!this.uploadedFileRepo || !item.localHash) return;
-
-		try {
-			const stats = statSync(item.sourcePath);
-			const sourceMtime = item.localLastModified?.getTime();
-			if (
-				stats.size !== item.size ||
-				(sourceMtime !== undefined &&
-					Math.abs(stats.mtimeMs - sourceMtime) >= 1)
-			) {
-				this.emit("state-warning", {
-					item,
-					message: "Source changed during upload; upload marker was not saved.",
-				});
-				return;
-			}
-
-			this.uploadedFileRepo.upsertSuccessfulUpload({
-				id: randomUUID(),
+		if (!this.transferRepo || this.options.dryRun) return;
+		this.transferRepo.createJob(
+			{
+				id: jobId,
 				profileName: this.options.profileName,
-				bucket: this.options.bucket,
-				remoteKey: item.targetPath,
-				localPath: item.sourcePath,
-				localName: basename(item.sourcePath),
-				fileSize: stats.size,
-				localMtimeMs: stats.mtimeMs,
-				localSha256: item.localHash,
-				deviceId: stats.dev,
-				inode: stats.ino,
-				remoteEtag: result?.etag ?? item.remoteHash,
-				remoteChecksumSha256:
-					result?.checksumSha256 ??
-					(item.remoteHash && /^[a-f\d]{64}$/i.test(item.remoteHash)
-						? item.remoteHash
-						: undefined),
-				uploadedAt: new Date(),
-			});
-		} catch (error) {
-			this.emit("state-warning", {
+				direction: plan.direction,
+				sourcePath: plan.items[0]?.sourcePath ?? "",
+				targetPath: plan.items[0]?.targetPath ?? "",
+				totalItems: totalFiles,
+				totalBytes: plan.totalBytes,
+				status: "in_progress",
+				createdAt: new Date(),
+				updatedAt: new Date(),
+			},
+			plan.items,
+		);
+	}
+
+	private async executeItem(
+		item: TransferItem,
+		state: ProgressState,
+		emitProgress: (activeItem?: string) => void,
+	): Promise<void> {
+		const onBytes = (bytes: number) => {
+			state.transferredBytes += bytes;
+			emitProgress(item.relativePath);
+		};
+		let uploadResult: PutObjectResult | undefined;
+		if (item.action === "upload") {
+			uploadResult = await this.uploader.upload(item, onBytes);
+			this.recordUpload(item, uploadResult);
+		} else if (item.action === "download") {
+			await downloadItem(
+				this.storage,
+				this.options,
+				this.retryOptions,
 				item,
-				message: error instanceof Error ? error.message : String(error),
+				onBytes,
+			);
+		} else if (item.action === "delete-remote") {
+			await this.storage.deleteObject({
+				bucket: this.options.bucket,
+				key: item.targetPath,
 			});
+			emitProgress(item.relativePath);
+		} else if (item.action === "delete-local") {
+			if (existsSync(item.sourcePath)) unlinkSync(item.sourcePath);
+			emitProgress(item.relativePath);
 		}
 	}
 
-	private async downloadItem(
+	private recordUpload(item: TransferItem, result?: PutObjectResult): void {
+		recordSuccessfulUpload(
+			this.uploadedFileRepo,
+			this.options,
+			item,
+			result,
+			(warningItem, message) =>
+				this.emit("state-warning", { item: warningItem, message }),
+		);
+	}
+
+	private failItem(
 		item: TransferItem,
-		onBytes: (bytes: number) => void,
-	): Promise<void> {
-		const key = item.sourcePath;
-		const targetFile = item.targetPath;
+		failure: unknown,
+		state: ProgressState,
+		errors: Error[],
+	): void {
+		const error =
+			failure instanceof Error ? failure : new Error(String(failure));
+		item.status = "failed";
+		item.error = error.message;
+		state.failedFiles++;
+		errors.push(error);
+		this.transferRepo?.updateTaskStatus(item.id, "failed", 0, error.message);
+		this.emit("item-fail", { item, error });
+	}
 
-		mkdirSync(dirname(targetFile), { recursive: true });
-
-		await RetryUtils.withRetry(async () => {
-			const stream = await this.storage.getObject({
-				bucket: this.options.bucket,
-				key,
-			});
-
-			const writeStream = createWriteStream(targetFile);
-
-			await new Promise<void>((resolve, reject) => {
-				stream.on("data", (chunk: Buffer) => {
-					onBytes(chunk.length);
-				});
-				stream.pipe(writeStream);
-				writeStream.on("finish", resolve);
-				writeStream.on("error", reject);
-				stream.on("error", reject);
-			});
-
-			// Verify checksum if available
-			if (
-				this.options.verifyChecksum &&
-				item.remoteHash &&
-				!ChecksumUtils.isMultipartETag(item.remoteHash)
-			) {
-				const { hash } = await ChecksumUtils.hashStream(
-					createReadStream(targetFile),
-					"sha256",
-				);
-				const remoteClean = item.remoteHash.replace(/["']/g, "").toLowerCase();
-
-				if (remoteClean.length === 64 && hash.toLowerCase() !== remoteClean) {
-					throw new IntegrityError(
-						`Downloaded file '${targetFile}' checksum mismatch (expected ${remoteClean}, got ${hash}).`,
-						{ key, expectedChecksum: remoteClean, actualChecksum: hash },
-					);
-				}
-			}
-		}, this.retryOptions);
+	private emitComplete(
+		jobId: string,
+		state: ProgressState,
+		errors: Error[],
+	): void {
+		this.emit("complete", { jobId, ...state, errors });
 	}
 }
