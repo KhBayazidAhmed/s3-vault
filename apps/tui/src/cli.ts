@@ -1,5 +1,6 @@
 import { ServiceContext } from "@S3-vault-CLI/application";
 import { Command } from "commander";
+import pkg from "../package.json" with { type: "json" };
 import { registerExportCommands } from "./cli/export-commands.js";
 import { registerInitCommand } from "./cli/init-command.js";
 import { registerObjectCommands } from "./cli/object-commands.js";
@@ -23,7 +24,7 @@ export function createCliProgram(
 		.description(
 			"S3 Vault CLI: Provider-neutral, scriptable file vault for S3-compatible object storage",
 		)
-		.version("0.1.0")
+		.version(pkg.version)
 		.option("--json", "Output results in stable JSON envelope for scripts")
 		.option("-q, --quiet", "Suppress progress meters and non-essential output")
 		.option("-p, --profile <name>", "Override the active storage profile")
