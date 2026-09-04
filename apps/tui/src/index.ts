@@ -1,6 +1,5 @@
 import { ServiceContext } from "@S3-vault-CLI/application";
 import { createCliProgram } from "./cli.js";
-import { runInteractiveTui } from "./tui-app.js";
 
 const args = process.argv;
 
@@ -8,6 +7,7 @@ const args = process.argv;
 if (args.length <= 2 && process.stdout.isTTY && !process.env.CI) {
 	const context = new ServiceContext();
 	try {
+		const { runInteractiveTui } = await import("./tui-app.js");
 		await runInteractiveTui(context);
 	} catch {
 		const program = createCliProgram(context);

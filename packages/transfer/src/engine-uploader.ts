@@ -40,12 +40,17 @@ export class EngineUploader {
 		const result = await RetryUtils.withRetry(async () => {
 			let sha256: string | undefined;
 			if (this.options.verifyChecksum) {
-				sha256 = (
-					await ChecksumUtils.hashStream(
-						createReadStream(item.sourcePath),
-						"sha256",
-					)
-				).hash;
+				if (item.localHash) {
+					sha256 = item.localHash;
+				} else {
+					sha256 = (
+						await ChecksumUtils.hashStream(
+							createReadStream(item.sourcePath),
+							"sha256",
+						)
+					).hash;
+					item.localHash = sha256;
+				}
 			}
 			const putResult = await this.storage.putObject({
 				bucket: this.options.bucket,

@@ -1,6 +1,5 @@
 import { DumpUseCase, type ServiceContext } from "@S3-vault-CLI/application";
 import type { Command } from "commander";
-import { runInteractiveTui } from "../tui-app.js";
 import type { HandleAction } from "./shared.js";
 
 export function registerExportCommands(
@@ -32,6 +31,7 @@ export function registerExportCommands(
 		.command("tui")
 		.description("Launch interactive terminal dashboard")
 		.action(async () => {
+			const { runInteractiveTui } = await import("../tui-app.js");
 			await runInteractiveTui(context);
 		});
 }

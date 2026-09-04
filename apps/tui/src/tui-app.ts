@@ -36,7 +36,18 @@ export async function runInteractiveTui(context: ServiceContext) {
 		bottomBarView.update(state);
 		dualPaneView.container.visible = state.activeModal === "none";
 	};
-	stateManager.subscribe(renderApp);
+
+	let renderScheduled = false;
+	const scheduleRender = () => {
+		if (renderScheduled) return;
+		renderScheduled = true;
+		setTimeout(() => {
+			renderScheduled = false;
+			renderApp();
+		}, 16);
+	};
+
+	stateManager.subscribe(scheduleRender);
 	process.stdout.on("resize", renderApp);
 
 	stateManager.refreshLocal();

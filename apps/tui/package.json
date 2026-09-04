@@ -1,6 +1,6 @@
 {
 	"name": "s3-vault",
-	"version": "0.1.1-dev.1",
+	"version": "0.1.1-dev.2",
 	"description": "A high-performance, local-first, provider-neutral CLI & interactive TUI for AWS S3, Cloudflare R2, MinIO, and S3-compatible storage.",
 	"type": "module",
 	"main": "./dist/vault.js",
@@ -39,6 +39,7 @@
 	},
 	"scripts": {
 		"build": "bun build ./src/index.ts --target bun --external @opentui/core --banner '#!/usr/bin/env bun' --outfile ./dist/vault.js && chmod +x ./dist/vault.js",
+		"build:bin": "bun build ./src/index.ts --compile --outfile ./dist/vault",
 		"prepublishOnly": "bun run build",
 		"start": "bun run src/index.ts",
 		"dev": "bun run --watch src/index.ts",

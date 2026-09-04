@@ -1,5 +1,8 @@
 import type { StorageProfileConfig } from "@S3-vault-CLI/config";
+import http from "node:http";
+import https from "node:https";
 import type { S3ClientConfig } from "@aws-sdk/client-s3";
+import { NodeHttpHandler } from "@smithy/node-http-handler";
 
 export interface ProviderPresetConfig {
 	defaultRegion: string;
@@ -75,9 +78,24 @@ export function buildS3ClientConfig(
 		endpoint = preset.endpointTemplate({ region });
 	}
 
+	const httpAgent = new http.Agent({
+		keepAlive: true,
+		maxSockets: 64,
+	});
+	const httpsAgent = new https.Agent({
+		keepAlive: true,
+		maxSockets: 64,
+	});
+
 	const clientConfig: S3ClientConfig = {
 		region,
 		forcePathStyle,
+		requestHandler: new NodeHttpHandler({
+			httpAgent,
+			httpsAgent,
+			connectionTimeout: 10000,
+			requestTimeout: 0,
+		}),
 	};
 
 	if (endpoint) {

@@ -14,6 +14,16 @@ export interface ScanOptions {
 	excludes?: string[];
 }
 
+function compileGlob(pattern: string): RegExp {
+	if (pattern === "*" || pattern === "**/*") return /^.*$/i;
+	const regexStr = pattern
+		.replace(/[.+^${}()|[\]\\]/g, "\\$&")
+		.replace(/\*\*/g, ".*")
+		.replace(/\*/g, "[^/]*")
+		.replace(/\?/g, ".");
+	return new RegExp(`^${regexStr}$`, "i");
+}
+
 export class LocalScanner {
 	static matchesPatterns(
 		relPath: string,
@@ -43,13 +53,7 @@ export class LocalScanner {
 	}
 
 	private static simpleGlobMatch(str: string, pattern: string): boolean {
-		if (pattern === "*" || pattern === "**/*") return true;
-		const regexStr = pattern
-			.replace(/[.+^${}()|[\]\\]/g, "\\$&")
-			.replace(/\*\*/g, ".*")
-			.replace(/\*/g, "[^/]*")
-			.replace(/\?/g, ".");
-		return new RegExp(`^${regexStr}$`, "i").test(str);
+		return compileGlob(pattern).test(str);
 	}
 
 	static scan(targetPath: string, options: ScanOptions = {}): LocalFileInfo[] {
@@ -71,6 +75,28 @@ export class LocalScanner {
 			];
 		}
 
+		const compiledExcludes = options.excludes?.length
+			? options.excludes.map(compileGlob)
+			: undefined;
+		const compiledIncludes = options.includes?.length
+			? options.includes.map(compileGlob)
+			: undefined;
+
+		const isIncluded = (rel: string): boolean => {
+			if (compiledExcludes) {
+				for (const rx of compiledExcludes) {
+					if (rx.test(rel)) return false;
+				}
+			}
+			if (compiledIncludes) {
+				for (const rx of compiledIncludes) {
+					if (rx.test(rel)) return true;
+				}
+				return false;
+			}
+			return true;
+		};
+
 		const results: LocalFileInfo[] = [];
 		const walk = (currentDir: string) => {
 			const entries = readdirSync(currentDir, { withFileTypes: true });
@@ -83,13 +109,7 @@ export class LocalScanner {
 						walk(full);
 					}
 				} else if (entry.isFile()) {
-					if (
-						LocalScanner.matchesPatterns(
-							rel,
-							options.includes,
-							options.excludes,
-						)
-					) {
+					if (isIncluded(rel)) {
 						const fStats = statSync(full);
 						results.push({
 							absolutePath: full,

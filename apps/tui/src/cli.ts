@@ -12,7 +12,6 @@ import { createActionHandler } from "./cli/shared.js";
 import { registerSnapshotCommands } from "./cli/snapshot-commands.js";
 import { registerTransferCommands } from "./cli/transfer-commands.js";
 import { registerUtilityCommands } from "./cli/utility-commands.js";
-import { runInteractiveTui } from "./tui-app.js";
 
 export function createCliProgram(
 	context: ServiceContext = new ServiceContext(),
@@ -33,6 +32,7 @@ export function createCliProgram(
 		.option("-e, --endpoint <url>", "Override endpoint URL")
 		.action(async () => {
 			if (process.stdout.isTTY && !process.env.CI) {
+				const { runInteractiveTui } = await import("./tui-app.js");
 				await runInteractiveTui(context);
 			} else {
 				program.outputHelp();

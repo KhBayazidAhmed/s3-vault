@@ -5,7 +5,7 @@ import type {
 	StorageBackend,
 	UploadedPart,
 } from "@S3-vault-CLI/storage";
-import { closeSync, openSync, readSync, statSync } from "node:fs";
+import { promises as fsPromises, statSync } from "node:fs";
 import type { StateWarning } from "./engine-files.js";
 import type { ResolvedEngineOptions } from "./engine-options.js";
 import { type RetryOptions, RetryUtils } from "./retry.js";
@@ -43,9 +43,9 @@ export class MultipartUploader {
 			sourceMtimeMs,
 			onBytes,
 		);
-		const fd = openSync(item.sourcePath, "r");
+		const handle = await fsPromises.open(item.sourcePath, "r");
 		try {
-			await this.uploadMissingParts(fd, item, session, totalParts, onBytes);
+			await this.uploadMissingParts(handle, item, session, totalParts, onBytes);
 			await this.ensureSourceUnchanged(item, sourceMtimeMs, session.uploadId);
 			const parts = Array.from(session.completedParts.values()).sort(
 				(a, b) => a.partNumber - b.partNumber,
@@ -63,7 +63,7 @@ export class MultipartUploader {
 			this.repository?.markCompleted(session.uploadId);
 			return result;
 		} finally {
-			closeSync(fd);
+			await handle.close();
 		}
 	}
 
@@ -141,7 +141,7 @@ export class MultipartUploader {
 	}
 
 	private async uploadMissingParts(
-		fd: number,
+		handle: fsPromises.FileHandle,
 		item: TransferItem,
 		session: MultipartSession,
 		totalParts: number,
@@ -158,7 +158,8 @@ export class MultipartUploader {
 						item.size - startOffset,
 					);
 					const body = Buffer.allocUnsafe(size);
-					if (readSync(fd, body, 0, size, startOffset) !== size) {
+					const { bytesRead } = await handle.read(body, 0, size, startOffset);
+					if (bytesRead !== size) {
 						throw new IntegrityError(
 							`Source file '${item.sourcePath}' changed or became unreadable during upload.`,
 							{ key: item.targetPath },

@@ -21,32 +21,87 @@ import type { StorageBackend } from "@S3-vault-CLI/storage";
 import { BackendFactory } from "./backend-factory.js";
 
 export class ServiceContext {
-	readonly configManager: ConfigManager;
-	readonly secretResolver: MultiTierSecretResolver;
-	readonly dbManager: DatabaseManager;
-	readonly transferRepo: TransferRepository;
-	readonly multipartRepo: MultipartRepository;
-	readonly lockManager: LockManager;
-	readonly cacheManager: ObjectCacheManager;
-	readonly snapshotRepo: SnapshotRepository;
-	readonly uploadedFileRepo: UploadedFileRepository;
+	private _configManager?: ConfigManager;
+	private _secretResolver?: MultiTierSecretResolver;
+	private _dbManager?: DatabaseManager;
+	private _transferRepo?: TransferRepository;
+	private _multipartRepo?: MultipartRepository;
+	private _lockManager?: LockManager;
+	private _cacheManager?: ObjectCacheManager;
+	private _snapshotRepo?: SnapshotRepository;
+	private _uploadedFileRepo?: UploadedFileRepository;
 
 	constructor(
-		options: {
+		private readonly options: {
 			customConfigPath?: string;
 			customDbPath?: string;
 			customSnapshotsDir?: string;
 		} = {},
-	) {
-		this.configManager = new ConfigManager(options.customConfigPath);
-		this.secretResolver = new MultiTierSecretResolver();
-		this.dbManager = new DatabaseManager(options.customDbPath);
-		this.transferRepo = new TransferRepository(this.dbManager.rawDb);
-		this.multipartRepo = new MultipartRepository(this.dbManager.rawDb);
-		this.lockManager = new LockManager(this.dbManager.rawDb);
-		this.cacheManager = new ObjectCacheManager(this.dbManager.rawDb);
-		this.snapshotRepo = new SnapshotRepository(options.customSnapshotsDir);
-		this.uploadedFileRepo = new UploadedFileRepository(this.dbManager.rawDb);
+	) {}
+
+	get configManager(): ConfigManager {
+		if (!this._configManager) {
+			this._configManager = new ConfigManager(this.options.customConfigPath);
+		}
+		return this._configManager;
+	}
+
+	get secretResolver(): MultiTierSecretResolver {
+		if (!this._secretResolver) {
+			this._secretResolver = new MultiTierSecretResolver();
+		}
+		return this._secretResolver;
+	}
+
+	get dbManager(): DatabaseManager {
+		if (!this._dbManager) {
+			this._dbManager = new DatabaseManager(this.options.customDbPath);
+		}
+		return this._dbManager;
+	}
+
+	get transferRepo(): TransferRepository {
+		if (!this._transferRepo) {
+			this._transferRepo = new TransferRepository(this.dbManager.rawDb);
+		}
+		return this._transferRepo;
+	}
+
+	get multipartRepo(): MultipartRepository {
+		if (!this._multipartRepo) {
+			this._multipartRepo = new MultipartRepository(this.dbManager.rawDb);
+		}
+		return this._multipartRepo;
+	}
+
+	get lockManager(): LockManager {
+		if (!this._lockManager) {
+			this._lockManager = new LockManager(this.dbManager.rawDb);
+		}
+		return this._lockManager;
+	}
+
+	get cacheManager(): ObjectCacheManager {
+		if (!this._cacheManager) {
+			this._cacheManager = new ObjectCacheManager(this.dbManager.rawDb);
+		}
+		return this._cacheManager;
+	}
+
+	get snapshotRepo(): SnapshotRepository {
+		if (!this._snapshotRepo) {
+			this._snapshotRepo = new SnapshotRepository(
+				this.options.customSnapshotsDir,
+			);
+		}
+		return this._snapshotRepo;
+	}
+
+	get uploadedFileRepo(): UploadedFileRepository {
+		if (!this._uploadedFileRepo) {
+			this._uploadedFileRepo = new UploadedFileRepository(this.dbManager.rawDb);
+		}
+		return this._uploadedFileRepo;
 	}
 
 	resolveRuntime(overrides: CliConfigOverrides = {}): {

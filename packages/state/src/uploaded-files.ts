@@ -1,5 +1,5 @@
 import type { UploadedFileRecord } from "@S3-vault-CLI/domain";
-import type { Database } from "bun:sqlite";
+import type { Database, Statement } from "bun:sqlite";
 
 type UploadedFileRow = {
 	id: string;
@@ -43,13 +43,15 @@ function toUploadedFileRecord(row: UploadedFileRow): UploadedFileRecord {
 
 export class UploadedFileRepository {
 	private db: Database;
+	private upsertStmt: Statement;
+	private findByPathStmt: Statement;
+	private findByIdentityStmt: Statement;
+	private findByHashStmt: Statement;
+	private removeByRemoteKeyStmt: Statement;
 
 	constructor(db: Database) {
 		this.db = db;
-	}
-
-	upsertSuccessfulUpload(record: UploadedFileRecord): void {
-		this.db.run(
+		this.upsertStmt = this.db.prepare(
 			`INSERT INTO uploaded_files (
 				id, profile_name, bucket, remote_key, local_path, local_name,
 				file_size, local_mtime_ms, local_sha256, device_id, inode,
@@ -67,23 +69,50 @@ export class UploadedFileRepository {
 				remote_checksum_sha256 = excluded.remote_checksum_sha256,
 				uploaded_at = excluded.uploaded_at,
 				remote_verified_at = excluded.remote_verified_at`,
-			[
-				record.id,
-				record.profileName,
-				record.bucket,
-				record.remoteKey,
-				record.localPath,
-				record.localName,
-				record.fileSize,
-				record.localMtimeMs,
-				record.localSha256,
-				record.deviceId ?? null,
-				record.inode ?? null,
-				record.remoteEtag ?? null,
-				record.remoteChecksumSha256 ?? null,
-				record.uploadedAt.toISOString(),
-				record.remoteVerifiedAt?.toISOString() ?? null,
-			],
+		);
+
+		this.findByPathStmt = this.db.prepare(
+			`SELECT * FROM uploaded_files
+			 WHERE profile_name = ? AND bucket = ? AND local_path = ?
+			 ORDER BY uploaded_at DESC LIMIT 1`,
+		);
+
+		this.findByIdentityStmt = this.db.prepare(
+			`SELECT * FROM uploaded_files
+			 WHERE profile_name = ? AND bucket = ? AND device_id = ? AND inode = ?
+			 ORDER BY uploaded_at DESC LIMIT 1`,
+		);
+
+		this.findByHashStmt = this.db.prepare(
+			`SELECT * FROM uploaded_files
+			 WHERE profile_name = ? AND bucket = ?
+			 AND local_sha256 = ? AND file_size = ?
+			 ORDER BY uploaded_at DESC LIMIT 1`,
+		);
+
+		this.removeByRemoteKeyStmt = this.db.prepare(
+			`DELETE FROM uploaded_files
+			 WHERE profile_name = ? AND bucket = ? AND remote_key = ?`,
+		);
+	}
+
+	upsertSuccessfulUpload(record: UploadedFileRecord): void {
+		this.upsertStmt.run(
+			record.id,
+			record.profileName,
+			record.bucket,
+			record.remoteKey,
+			record.localPath,
+			record.localName,
+			record.fileSize,
+			record.localMtimeMs,
+			record.localSha256,
+			record.deviceId ?? null,
+			record.inode ?? null,
+			record.remoteEtag ?? null,
+			record.remoteChecksumSha256 ?? null,
+			record.uploadedAt.toISOString(),
+			record.remoteVerifiedAt?.toISOString() ?? null,
 		);
 	}
 
@@ -112,13 +141,11 @@ export class UploadedFileRepository {
 		bucket: string,
 		localPath: string,
 	): UploadedFileRecord | null {
-		const row = this.db
-			.query(
-				`SELECT * FROM uploaded_files
-				 WHERE profile_name = ? AND bucket = ? AND local_path = ?
-				 ORDER BY uploaded_at DESC LIMIT 1`,
-			)
-			.get(profileName, bucket, localPath) as UploadedFileRow | null;
+		const row = this.findByPathStmt.get(
+			profileName,
+			bucket,
+			localPath,
+		) as UploadedFileRow | null;
 
 		return row ? toUploadedFileRecord(row) : null;
 	}
@@ -129,13 +156,12 @@ export class UploadedFileRepository {
 		deviceId: number,
 		inode: number,
 	): UploadedFileRecord | null {
-		const row = this.db
-			.query(
-				`SELECT * FROM uploaded_files
-				 WHERE profile_name = ? AND bucket = ? AND device_id = ? AND inode = ?
-				 ORDER BY uploaded_at DESC LIMIT 1`,
-			)
-			.get(profileName, bucket, deviceId, inode) as UploadedFileRow | null;
+		const row = this.findByIdentityStmt.get(
+			profileName,
+			bucket,
+			deviceId,
+			inode,
+		) as UploadedFileRow | null;
 
 		return row ? toUploadedFileRecord(row) : null;
 	}
@@ -146,14 +172,12 @@ export class UploadedFileRepository {
 		hash: string,
 		size: number,
 	): UploadedFileRecord | null {
-		const row = this.db
-			.query(
-				`SELECT * FROM uploaded_files
-				 WHERE profile_name = ? AND bucket = ?
-				 AND local_sha256 = ? AND file_size = ?
-				 ORDER BY uploaded_at DESC LIMIT 1`,
-			)
-			.get(profileName, bucket, hash, size) as UploadedFileRow | null;
+		const row = this.findByHashStmt.get(
+			profileName,
+			bucket,
+			hash,
+			size,
+		) as UploadedFileRow | null;
 
 		return row ? toUploadedFileRecord(row) : null;
 	}
@@ -163,10 +187,6 @@ export class UploadedFileRepository {
 		bucket: string,
 		remoteKey: string,
 	): void {
-		this.db.run(
-			`DELETE FROM uploaded_files
-			 WHERE profile_name = ? AND bucket = ? AND remote_key = ?`,
-			[profileName, bucket, remoteKey],
-		);
+		this.removeByRemoteKeyStmt.run(profileName, bucket, remoteKey);
 	}
 }
