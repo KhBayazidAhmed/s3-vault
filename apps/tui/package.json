@@ -1,6 +1,6 @@
 {
 	"name": "s3-vault",
-	"version": "0.1.0",
+	"version": "0.1.1-dev.0",
 	"description": "A high-performance, local-first, provider-neutral CLI & interactive TUI for AWS S3, Cloudflare R2, MinIO, and S3-compatible storage.",
 	"type": "module",
 	"main": "./dist/vault.js",

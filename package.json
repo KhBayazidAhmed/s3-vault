@@ -44,6 +44,7 @@
 		"build": "turbo run build",
 		"build:cli": "turbo run build -F s3-vault --",
 		"publish:cli": "bun publish --cwd apps/tui --access public",
+		"publish:cli:dev": "bun publish --cwd apps/tui --tag dev --access public",
 		"check-types": "turbo run check-types",
 		"dev:web": "turbo run dev -F web --",
 		"dev:tui": "turbo run dev -F s3-vault --",
@@ -52,24 +53,13 @@
 		"prepare": "husky"
 	},
 	"dependencies": {
-		"@S3-vault-CLI/env": "workspace:*",
-		"dotenv": "catalog:",
-		"zod": "catalog:"
+		"@S3-vault-CLI/env": "workspace:*"
 	},
 	"devDependencies": {
-		"@S3-vault-CLI/config": "workspace:*",
-		"@biomejs/biome": "^2.5.6",
-		"@types/node": "catalog:",
-		"bun-types": "^1.4.0",
+		"@biomejs/biome": "2.4.6",
+		"@commitlint/cli": "^19.8.1",
+		"@commitlint/config-conventional": "^19.8.1",
 		"husky": "^9.1.7",
-		"lint-staged": "^17.2.0",
-		"turbo": "^2.10.7",
-		"typescript": "catalog:"
-	},
-	"lint-staged": {
-		"*.{js,ts,cjs,mjs,d.cts,d.mts,jsx,tsx,json,jsonc}": [
-			"biome check --write ."
-		]
-	},
-	"packageManager": "bun@1.3.12"
+		"turbo": "^2.4.4"
+	}
 }
