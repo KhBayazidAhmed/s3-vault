@@ -42,9 +42,10 @@
 		"test": "bun test",
 		"dev": "turbo run dev",
 		"build": "turbo run build",
+		"build:cli": "turbo run build -F s3-vault --",
 		"check-types": "turbo run check-types",
 		"dev:web": "turbo run dev -F web --",
-		"dev:tui": "turbo run dev -F @S3-vault-CLI/tui --",
+		"dev:tui": "turbo run dev -F s3-vault --",
 		"link:global": "ln -sf $(pwd)/apps/tui/bin/vault.js ~/.bun/bin/vault",
 		"check": "biome check --write .",
 		"prepare": "husky"

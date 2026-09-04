@@ -1,17 +1,53 @@
 {
-	"name": "@S3-vault-CLI/tui",
+	"name": "s3-vault",
 	"version": "0.1.0",
-	"private": true,
+	"description": "A high-performance, local-first, provider-neutral CLI & interactive TUI for AWS S3, Cloudflare R2, MinIO, and S3-compatible storage.",
 	"type": "module",
+	"main": "./dist/vault.js",
 	"bin": {
-		"vault": "./bin/vault.js"
+		"vault": "./dist/vault.js",
+		"s3-vault": "./dist/vault.js"
+	},
+	"files": [
+		"dist",
+		"README.md",
+		"LICENSE"
+	],
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/KhBayazidAhmed/s3-vault.git"
+	},
+	"keywords": [
+		"s3",
+		"cli",
+		"tui",
+		"opentui",
+		"aws-s3",
+		"cloudflare-r2",
+		"minio",
+		"wasabi",
+		"storage",
+		"backup",
+		"vault",
+		"sync"
+	],
+	"author": "Bayazid Ahmed",
+	"license": "MIT",
+	"homepage": "https://github.com/KhBayazidAhmed/s3-vault#readme",
+	"bugs": {
+		"url": "https://github.com/KhBayazidAhmed/s3-vault/issues"
 	},
 	"scripts": {
+		"build": "bun build ./src/index.ts --target bun --external @opentui/core --banner '#!/usr/bin/env bun' --outfile ./dist/vault.js && chmod +x ./dist/vault.js",
+		"prepublishOnly": "bun run build",
 		"start": "bun run src/index.ts",
 		"dev": "bun run --watch src/index.ts",
 		"check-types": "tsc --noEmit"
 	},
 	"dependencies": {
+		"@opentui/core": "^0.5.8"
+	},
+	"devDependencies": {
 		"@S3-vault-CLI/application": "workspace:*",
 		"@S3-vault-CLI/config": "workspace:*",
 		"@S3-vault-CLI/domain": "workspace:*",
@@ -19,12 +55,8 @@
 		"@S3-vault-CLI/secrets": "workspace:*",
 		"@S3-vault-CLI/storage": "workspace:*",
 		"@S3-vault-CLI/transfer": "workspace:*",
-		"@opentui/core": "^0.5.8",
-		"commander": "^13.1.0"
-	},
-	"devDependencies": {
-		"@S3-vault-CLI/config": "workspace:*",
 		"@types/node": "catalog:",
+		"commander": "^13.1.0",
 		"typescript": "catalog:"
 	}
 }
