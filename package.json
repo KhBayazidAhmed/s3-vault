@@ -1,6 +1,29 @@
 {
 	"name": "S3-vault-CLI",
+	"version": "0.1.0",
+	"description": "A high-performance, local-first, provider-neutral CLI & interactive TUI for AWS S3, Cloudflare R2, MinIO, and S3-compatible storage.",
 	"private": true,
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/KhBayazidAhmed/s3-vault.git"
+	},
+	"license": "MIT",
+	"keywords": [
+		"s3",
+		"cli",
+		"tui",
+		"opentui",
+		"aws-s3",
+		"cloudflare-r2",
+		"minio",
+		"wasabi",
+		"storage",
+		"backup",
+		"vault",
+		"sync",
+		"turborepo",
+		"bun"
+	],
 	"workspaces": {
 		"packages": [
 			"apps/*",

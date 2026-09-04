@@ -1,15 +1,15 @@
-# core
+# S3 Vault TUI & CLI Runner
 
-To install dependencies:
+Interactive dual-pane Terminal User Interface (TUI) powered by OpenTUI and CLI command suite for S3 Vault.
 
-```bash
-bun install
-```
-
-To run:
+## Running the CLI / TUI
 
 ```bash
-bun dev
+# Direct run
+bun run bin/vault.js --help
+
+# Launch interactive OpenTUI file manager
+bun run bin/vault.js tui
 ```
 
-This project was created using `bun create tui`. [create-tui](https://git.new/create-tui) is the easiest way to get started with OpenTUI.
+See the root [README.md](../../README.md) for full documentation, installation instructions, and command reference.
