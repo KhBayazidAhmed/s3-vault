@@ -1,0 +1,74 @@
+name: Publish to npm
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "npm distribution tag (dev or latest)"
+        required: true
+        default: "dev"
+        type: choice
+        options:
+          - dev
+          - latest
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    name: Publish s3-vault to npm
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Type check
+        run: bun run check-types
+
+      - name: Run test suite
+        run: bun test
+
+      - name: Build CLI bundle
+        run: bun run build:cli
+
+      - name: Determine npm tag
+        id: meta
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref_name }}" =~ -dev ]]; then
+            echo "tag=dev" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref_name }}" =~ -beta ]]; then
+            echo "tag=beta" >> $GITHUB_OUTPUT
+          else
+            echo "tag=latest" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Publish to npm registry
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          npm publish ./apps/tui --tag ${{ steps.meta.outputs.tag }} --access public

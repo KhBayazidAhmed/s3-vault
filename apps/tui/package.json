@@ -37,6 +37,9 @@
 	"bugs": {
 		"url": "https://github.com/KhBayazidAhmed/s3-vault/issues"
 	},
+	"publishConfig": {
+		"access": "public"
+	},
 	"scripts": {
 		"build": "bun build ./src/index.ts --target bun --external @opentui/core --banner '#!/usr/bin/env bun' --outfile ./dist/vault.js && chmod +x ./dist/vault.js",
 		"build:bin": "bun build ./src/index.ts --compile --outfile ./dist/vault",
