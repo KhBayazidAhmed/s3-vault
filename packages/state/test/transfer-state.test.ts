@@ -49,6 +49,33 @@ describe("State: Database, Transfers, Multipart, Locks, Snapshots & Uploaded Fil
 		expect(history[0]?.status).toBe("completed");
 	});
 
+	it("reconciles stale in_progress jobs to cancelled on history query", () => {
+		const repo = new TransferRepository(fixture.dbManager.rawDb);
+		const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+
+		repo.createJob(
+			{
+				id: "job_stale",
+				profileName: "test-profile",
+				direction: "pull",
+				sourcePath: "remote/bixbd.dmg",
+				targetPath: "./bixbd.dmg",
+				totalItems: 1,
+				totalBytes: 1024 * 1024 * 1024,
+				status: "in_progress",
+				createdAt: tenMinutesAgo,
+				updatedAt: tenMinutesAgo,
+			},
+			[],
+		);
+
+		const history = repo.listHistory({ profileName: "test-profile" });
+		const staleJob = history.find((j) => j.id === "job_stale");
+		expect(staleJob).toBeDefined();
+		expect(staleJob?.status).toBe("cancelled");
+		expect(staleJob?.errorMessage).toBe("Interrupted");
+	});
+
 	it("tracks multipart upload parts and recovers session", () => {
 		const multipartRepo = new MultipartRepository(fixture.dbManager.rawDb);
 

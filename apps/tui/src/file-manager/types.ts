@@ -21,6 +21,7 @@ export type ModalType =
 	| "profile-select"
 	| "profile-create"
 	| "confirm-delete"
+	| "confirm-download"
 	| "share-link"
 	| "help";
 

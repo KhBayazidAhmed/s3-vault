@@ -1,3 +1,4 @@
+import { Formatter } from "@S3-vault-CLI/output";
 import {
 	BoxRenderable,
 	bold,
@@ -94,6 +95,22 @@ export function createModalView(renderer: CliRenderer) {
 			);
 
 			modalText.content = t`Are you sure you want to permanently delete:\n  ${red(bold(target))} ${scope}?\n\n${bold("Press [Y] to Confirm Delete  •  [N] / [Esc] to Cancel")}`;
+			return;
+		}
+
+		if (state.activeModal === "confirm-download") {
+			container.title = " ⬇️ CONFIRM DOWNLOAD ";
+			container.borderColor = RGBA.fromHex("#00e5ff");
+
+			const target = state.modalData?.targetItem?.name || "selected item";
+			const sizeBytes = state.modalData?.targetItem?.size ?? 0;
+			const isDir = state.modalData?.targetItem?.isDirectory;
+			const formattedSize = isDir
+				? "directory"
+				: Formatter.formatBytes(sizeBytes);
+			const targetPath = state.localPath;
+
+			modalText.content = t`Download remote ${isDir ? "directory" : "object"}:\n  ${cyan(bold(target))} (${formattedSize})\n\nInto local destination:\n  ${dim(targetPath)}\n\n${bold("Press [Y] to Confirm Download  •  [N] / [Esc] to Cancel")}`;
 			return;
 		}
 

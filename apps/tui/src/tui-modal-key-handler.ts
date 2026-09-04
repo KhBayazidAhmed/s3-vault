@@ -6,6 +6,7 @@ import {
 import { rmSync } from "node:fs";
 import type { TuiStateManager } from "./file-manager/tui-state.js";
 import type { TuiState } from "./file-manager/types.js";
+import { downloadSelected } from "./tui-transfer-actions.js";
 
 export async function handleModalKey(
 	keyName: string,
@@ -25,6 +26,10 @@ export async function handleModalKey(
 	}
 	if (state.activeModal === "confirm-delete") {
 		await confirmDelete(keyName, state, stateManager, context);
+		return true;
+	}
+	if (state.activeModal === "confirm-download") {
+		await confirmDownload(keyName, state, stateManager, context);
 		return true;
 	}
 	if (state.activeModal === "share-link") {
@@ -121,4 +126,21 @@ async function confirmDelete(
 			"error",
 		);
 	}
+}
+
+async function confirmDownload(
+	keyName: string,
+	state: Readonly<TuiState>,
+	stateManager: TuiStateManager,
+	context: ServiceContext,
+) {
+	if (keyName === "n" || keyName === "escape") {
+		stateManager.closeModal();
+		stateManager.setStatus("Download cancelled.", "info");
+		return;
+	}
+	if (keyName !== "y" && keyName !== "return") return;
+
+	stateManager.closeModal();
+	await downloadSelected(state, stateManager, context);
 }

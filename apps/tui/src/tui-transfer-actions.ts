@@ -14,11 +14,42 @@ export async function handleTransferKey(
 	context: ServiceContext,
 ): Promise<boolean> {
 	if (keyName === "u") {
+		if (state.activePane !== "local") {
+			stateManager.setStatus(
+				"Switch to Local pane [Tab] to upload files.",
+				"warning",
+			);
+			return true;
+		}
 		await uploadSelected(state, stateManager, context);
 		return true;
 	}
 	if (keyName === "d") {
-		await downloadSelected(state, stateManager, context);
+		if (state.activePane !== "remote") {
+			stateManager.setStatus(
+				"Switch to Remote pane [Tab] to download files.",
+				"warning",
+			);
+			return true;
+		}
+		const item = stateManager.getSelectedItem("remote");
+		if (!item) {
+			stateManager.setStatus(
+				"Please select a remote object to download.",
+				"warning",
+			);
+			return true;
+		}
+		if (item.name === "..") {
+			stateManager.setStatus(
+				"Cannot download parent directory reference.",
+				"warning",
+			);
+			return true;
+		}
+		stateManager.openModal("confirm-download", {
+			targetItem: item,
+		});
 		return true;
 	}
 	return false;
@@ -94,7 +125,7 @@ async function uploadSelected(
 	}
 }
 
-async function downloadSelected(
+export async function downloadSelected(
 	state: Readonly<TuiState>,
 	stateManager: TuiStateManager,
 	context: ServiceContext,

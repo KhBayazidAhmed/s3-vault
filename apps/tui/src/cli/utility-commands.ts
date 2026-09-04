@@ -102,7 +102,9 @@ export function registerUtilityCommands(
 							? colors.green("completed")
 							: item.status === "failed"
 								? colors.red("failed")
-								: item.status,
+								: item.status === "cancelled"
+									? colors.yellow("cancelled")
+									: item.status,
 						`${item.totalItems} items`,
 						Formatter.formatBytes(item.totalBytes),
 						Formatter.formatRelativeTime(item.createdAt),

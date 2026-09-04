@@ -42,8 +42,7 @@ export class TransferRepository {
 			);
 
 			const insertTask = this.db.prepare(
-				`INSERT INTO transfer_tasks (
-          id, job_id, source_path, target_path, relative_path,
+				`INSERT INTO transfer_tasks (\n          id, job_id, source_path, target_path, relative_path,
           size, action, status, bytes_transferred, local_hash, remote_hash
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			);
@@ -145,7 +144,23 @@ export class TransferRepository {
 		return { job, tasks };
 	}
 
+	reconcileStaleJobs(staleThresholdMs = 2 * 60 * 1000): number {
+		const threshold = new Date(Date.now() - staleThresholdMs).toISOString();
+		const now = new Date().toISOString();
+		const res = this.db.run(
+			`UPDATE transfers
+       SET status = 'cancelled',
+           error_message = 'Interrupted',
+           updated_at = ?,
+           completed_at = COALESCE(completed_at, ?)
+       WHERE status = 'in_progress' AND updated_at < ?`,
+			[now, now, threshold],
+		);
+		return res.changes;
+	}
+
 	listHistory(filter: TransferHistoryFilter = {}): TransferJob[] {
+		this.reconcileStaleJobs();
 		let sql = "SELECT * FROM transfers WHERE 1=1";
 		const params: (string | number)[] = [];
 
