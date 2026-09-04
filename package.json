@@ -43,6 +43,7 @@
 		"dev": "turbo run dev",
 		"build": "turbo run build",
 		"build:cli": "turbo run build -F s3-vault --",
+		"publish:cli": "bun publish --cwd apps/tui --access public",
 		"check-types": "turbo run check-types",
 		"dev:web": "turbo run dev -F web --",
 		"dev:tui": "turbo run dev -F s3-vault --",
