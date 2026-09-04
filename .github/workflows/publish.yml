@@ -11,6 +11,10 @@ on:
         options:
           - dev
           - latest
+      otp:
+        description: "npm 2FA one-time password (only if not using an npm Automation Token)"
+        required: false
+        default: ""
   push:
     tags:
       - "v*"
@@ -71,4 +75,8 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          npm publish ./apps/tui --tag ${{ steps.meta.outputs.tag }} --access public
+          EXTRA_ARGS=""
+          if [ -n "${{ github.event.inputs.otp }}" ]; then
+            EXTRA_ARGS="--otp=${{ github.event.inputs.otp }}"
+          fi
+          npm publish ./apps/tui --tag ${{ steps.meta.outputs.tag }} --access public $EXTRA_ARGS
